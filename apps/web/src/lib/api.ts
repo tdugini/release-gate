@@ -7,6 +7,23 @@ import type {
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:5080';
 
+type ProblemDetails = {
+  title?: string;
+  message?: string;
+  errors?: Record<string, string[]>;
+};
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly fieldErrors: Record<string, string[]> = {},
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
@@ -17,18 +34,34 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Request failed with ${response.status}`);
+    const raw = await response.text();
+    let problem: ProblemDetails | null = null;
+
+    try {
+      problem = raw ? (JSON.parse(raw) as ProblemDetails) : null;
+    } catch {
+      problem = null;
+    }
+
+    const firstFieldError = problem?.errors
+      ? Object.values(problem.errors).flat()[0]
+      : undefined;
+
+    throw new ApiError(
+      problem?.message ?? firstFieldError ?? problem?.title ?? raw ?? `Request failed with ${response.status}`,
+      response.status,
+      problem?.errors ?? {},
+    );
   }
 
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
 export const api = {
   projects: {
     list: () => request<ProjectSummary[]>('/api/projects'),
-    get: (projectKey: string) =>
-      request<ProjectDetail>(`/api/projects/${projectKey}`),
+    get: (projectKey: string) => request<ProjectDetail>(`/api/projects/${projectKey}`),
     create: (input: { name: string; key: string; description?: string }) =>
       request<ProjectDetail>('/api/projects', {
         method: 'POST',
@@ -41,24 +74,30 @@ export const api = {
         `/api/projects/${projectKey}/flags?environment=${environment}`,
       ),
     get: (projectKey: string, flagKey: string) =>
-      request<FeatureFlagDetail>(
-        `/api/projects/${projectKey}/flags/${flagKey}`,
-      ),
+      request<FeatureFlagDetail>(`/api/projects/${projectKey}/flags/${flagKey}`),
     create: (
       projectKey: string,
       input: { name: string; key: string; description?: string },
     ) =>
-      request(`/api/projects/${projectKey}/flags`, {
-        method: 'POST',
-        body: JSON.stringify(input),
-      }),
+      request<{ id: string; name: string; key: string; description: string | null }>(
+        `/api/projects/${projectKey}/flags`,
+        {
+          method: 'POST',
+          body: JSON.stringify(input),
+        },
+      ),
     updateEnvironment: (
       projectKey: string,
       flagKey: string,
       environment: string,
       input: { enabled: boolean; rolloutPercentage: number },
     ) =>
-      request(
+      request<{
+        environment: string;
+        enabled: boolean;
+        rolloutPercentage: number;
+        updatedAt: string;
+      }>(
         `/api/projects/${projectKey}/flags/${flagKey}/environments/${environment}`,
         {
           method: 'PATCH',
