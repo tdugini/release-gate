@@ -15,6 +15,7 @@ public static class FeatureFlagEndpoints
         group.MapGet("", GetFlags);
         group.MapGet("/{flagKey}", GetFlag);
         group.MapPost("", CreateFlag);
+        group.MapPost("/{flagKey}/evaluate", EvaluateFlag);
         group.MapPatch("/{flagKey}/environments/{environmentKey}", UpdateEnvironment);
 
         return endpoints;
@@ -167,6 +168,69 @@ public static class FeatureFlagEndpoints
             flag.Key,
             flag.Description
         });
+    }
+
+    private static async Task<IResult> EvaluateFlag(
+        string projectKey,
+        string flagKey,
+        EvaluateFeatureFlagRequest request,
+        ReleaseGateDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var environmentKey = request.Environment?.Trim().ToLowerInvariant() ?? string.Empty;
+        var subjectKey = request.SubjectKey?.Trim() ?? string.Empty;
+
+        var errors = new Dictionary<string, string[]>();
+
+        if (string.IsNullOrWhiteSpace(environmentKey))
+        {
+            errors["environment"] = ["Environment is required."];
+        }
+
+        if (string.IsNullOrWhiteSpace(subjectKey) || subjectKey.Length > 200)
+        {
+            errors["subjectKey"] = ["Subject key is required and must be at most 200 characters."];
+        }
+
+        if (errors.Count > 0)
+        {
+            return Results.ValidationProblem(errors);
+        }
+
+        var setting = await db.FeatureFlagEnvironments
+            .AsNoTracking()
+            .Where(x => x.FeatureFlag.Project.Key == projectKey
+                        && x.FeatureFlag.Key == flagKey
+                        && x.Environment.Key == environmentKey)
+            .Select(x => new
+            {
+                x.Enabled,
+                x.RolloutPercentage
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (setting is null)
+        {
+            return Results.NotFound();
+        }
+
+        var decision = FeatureFlagEvaluator.Evaluate(
+            projectKey,
+            flagKey,
+            environmentKey,
+            subjectKey,
+            setting.Enabled,
+            setting.RolloutPercentage);
+
+        return Results.Ok(new EvaluateFeatureFlagResponse(
+            projectKey,
+            flagKey,
+            environmentKey,
+            subjectKey,
+            decision.Enabled,
+            setting.RolloutPercentage,
+            decision.Bucket,
+            decision.Reason));
     }
 
     private static async Task<IResult> UpdateEnvironment(
