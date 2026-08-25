@@ -78,7 +78,7 @@ The development API listens on `http://localhost:5080`.
 
 ```bash
 cd apps/web
-npm install
+npm ci
 npm run dev
 ```
 
