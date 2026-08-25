@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="apps/api/ReleaseGate.Api/ReleaseGate.Api.csproj" />
+  <Project Path="tests/ReleaseGate.Api.IntegrationTests/ReleaseGate.Api.IntegrationTests.csproj" />
+</Solution>
