@@ -1,4 +1,5 @@
 using ReleaseGate.Api.Infrastructure;
+using Xunit;
 
 namespace ReleaseGate.Api.IntegrationTests;
 
