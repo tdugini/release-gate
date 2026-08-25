@@ -10,6 +10,8 @@ namespace ReleaseGate.Api.IntegrationTests;
 
 public sealed class ReleaseGateApiFactory : WebApplicationFactory<Program>
 {
+    private readonly string _databaseName = $"releasegate-tests-{Guid.NewGuid()}";
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
@@ -20,7 +22,7 @@ public sealed class ReleaseGateApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<IDbContextOptionsConfiguration<ReleaseGateDbContext>>();
 
             services.AddDbContext<ReleaseGateDbContext>(options =>
-                options.UseInMemoryDatabase($"releasegate-tests-{Guid.NewGuid()}"));
+                options.UseInMemoryDatabase(_databaseName));
         });
     }
 }
