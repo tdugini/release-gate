@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using ReleaseGate.Api.Persistence;
 
 namespace ReleaseGate.Api.IntegrationTests;
@@ -14,13 +16,8 @@ public sealed class ReleaseGateApiFactory : WebApplicationFactory<Program>
 
         builder.ConfigureServices(services =>
         {
-            var descriptor = services.SingleOrDefault(
-                service => service.ServiceType == typeof(DbContextOptions<ReleaseGateDbContext>));
-
-            if (descriptor is not null)
-            {
-                services.Remove(descriptor);
-            }
+            services.RemoveAll<DbContextOptions<ReleaseGateDbContext>>();
+            services.RemoveAll<IDbContextOptionsConfiguration<ReleaseGateDbContext>>();
 
             services.AddDbContext<ReleaseGateDbContext>(options =>
                 options.UseInMemoryDatabase($"releasegate-tests-{Guid.NewGuid()}"));
