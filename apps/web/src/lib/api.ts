@@ -1,6 +1,8 @@
 import type {
   FeatureFlagDetail,
   FeatureFlagSummary,
+  FlagChange,
+  FlagEnvironment,
   ProjectDetail,
   ProjectSummary,
 } from '../types';
@@ -75,6 +77,12 @@ export const api = {
       ),
     get: (projectKey: string, flagKey: string) =>
       request<FeatureFlagDetail>(`/api/projects/${projectKey}/flags/${flagKey}`),
+    changes: (projectKey: string, flagKey: string, environment?: string) => {
+      const query = environment ? `?environment=${encodeURIComponent(environment)}` : '';
+      return request<FlagChange[]>(
+        `/api/projects/${projectKey}/flags/${flagKey}/changes${query}`,
+      );
+    },
     create: (
       projectKey: string,
       input: { name: string; key: string; description?: string },
@@ -92,17 +100,22 @@ export const api = {
       environment: string,
       input: { enabled: boolean; rolloutPercentage: number },
     ) =>
-      request<{
-        environment: string;
-        enabled: boolean;
-        rolloutPercentage: number;
-        updatedAt: string;
-      }>(
+      request<FlagEnvironment | FlagChange>(
         `/api/projects/${projectKey}/flags/${flagKey}/environments/${environment}`,
         {
           method: 'PATCH',
           body: JSON.stringify(input),
         },
+      ),
+    approveChange: (projectKey: string, flagKey: string, changeId: string) =>
+      request<FlagChange>(
+        `/api/projects/${projectKey}/flags/${flagKey}/changes/${changeId}/approve`,
+        { method: 'POST' },
+      ),
+    rejectChange: (projectKey: string, flagKey: string, changeId: string) =>
+      request<FlagChange>(
+        `/api/projects/${projectKey}/flags/${flagKey}/changes/${changeId}/reject`,
+        { method: 'POST' },
       ),
   },
 };
