@@ -12,7 +12,7 @@ It is designed around a real internal-platform problem: teams need a safe way to
 
 The current milestone adds traceability and a review workflow on top of the runtime evaluation introduced in v0.3.
 
-The first v0.4 slice now records feature flag environment changes with:
+The first v0.4 slices now record and display feature flag environment changes with:
 
 - previous enabled state and rollout percentage;
 - requested enabled state and rollout percentage;
@@ -22,14 +22,14 @@ The first v0.4 slice now records feature flag environment changes with:
 - change status;
 - fields reserved for the upcoming approval/rejection review step.
 
-A flag's change history is exposed through the API and will be surfaced in the control plane before production approval behavior is enabled.
+A flag's change history is exposed through the API and surfaced directly in the control plane. Saving a new environment configuration refreshes both the flag state and its audit history.
 
 ### Milestone progress
 
 - **v0.1 — Core model:** projects, environments, flags, REST API, PostgreSQL, React control plane and CI.
 - **v0.2 — Flag management UI:** project/flag creation, per-environment state and rollout management, validation and operator feedback.
 - **v0.3 — Runtime evaluation:** deterministic subject bucketing and percentage rollout evaluation endpoint.
-- **v0.4 — Audit & approvals:** change history first, followed by approval/rejection for production changes. **Current.**
+- **v0.4 — Audit & approvals:** persisted change history and control-plane audit view, followed by approval/rejection for production changes. **Current.**
 - **v0.5 — SDK & updates:** application-facing SDK integration and runtime configuration delivery.
 - **v1.0 — Product polish:** documentation, deployment and portfolio-ready demo.
 
