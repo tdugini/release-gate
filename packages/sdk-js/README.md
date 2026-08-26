@@ -36,12 +36,41 @@ client.isEnabled('missing-flag', true);
 await client.refresh();
 ```
 
-If a refresh request fails, the last valid snapshot remains available. Automatic refresh/polling is intentionally kept separate from this first SDK slice.
+If a refresh request fails, the last valid snapshot remains available.
+
+## Automatic refresh
+
+Set `refreshInterval` in milliseconds to keep the cached snapshot up to date automatically. Automatic refresh starts after a successful `initialize()`.
+
+```ts
+const client = new ReleaseGateClient({
+  baseUrl: 'http://localhost:5080',
+  projectKey: 'silva-commerce',
+  environment: 'production',
+  refreshInterval: 30_000,
+  onRefreshError: (error) => {
+    console.error('ReleaseGate refresh failed', error);
+  },
+});
+
+await client.initialize('user-123');
+
+client.isEnabled('new-checkout');
+```
+
+The refresh loop waits for each request to finish before scheduling the next one, so slow requests do not create overlapping polls. Failed polls keep the last valid snapshot and are retried on the next interval.
+
+Use `stop()` when the consumer no longer needs updates. `start()` can resume polling later when `refreshInterval` was configured.
+
+```ts
+client.stop();
+client.start();
+```
 
 ## Development
 
 ```bash
-npm install
+npm ci
 npm run typecheck
 npm test
 ```
