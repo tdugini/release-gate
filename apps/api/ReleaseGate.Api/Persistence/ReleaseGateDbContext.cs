@@ -10,6 +10,7 @@ public sealed class ReleaseGateDbContext(DbContextOptions<ReleaseGateDbContext> 
     public DbSet<ProjectEnvironment> Environments => Set<ProjectEnvironment>();
     public DbSet<FeatureFlag> FeatureFlags => Set<FeatureFlag>();
     public DbSet<FeatureFlagEnvironment> FeatureFlagEnvironments => Set<FeatureFlagEnvironment>();
+    public DbSet<FlagChange> FlagChanges => Set<FlagChange>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -62,6 +63,20 @@ public sealed class ReleaseGateDbContext(DbContextOptions<ReleaseGateDbContext> 
             entity.HasOne(x => x.Environment)
                 .WithMany(x => x.FlagSettings)
                 .HasForeignKey(x => x.EnvironmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<FlagChange>(entity =>
+        {
+            entity.ToTable("flag_changes");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Status).HasMaxLength(24).IsRequired();
+            entity.Property(x => x.RequestedBy).HasMaxLength(120).IsRequired();
+            entity.Property(x => x.ReviewedBy).HasMaxLength(120);
+            entity.HasIndex(x => new { x.FeatureFlagEnvironmentId, x.RequestedAt });
+            entity.HasOne(x => x.FeatureFlagEnvironment)
+                .WithMany()
+                .HasForeignKey(x => x.FeatureFlagEnvironmentId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }
