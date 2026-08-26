@@ -2,26 +2,36 @@
 
 ReleaseGate is a self-hosted feature flag and rollout management platform built as a production-oriented full-stack portfolio project.
 
-It is designed around a real internal-platform problem: teams need a safe way to create flags, separate configuration by environment, inspect rollout state, and understand what is changing before a release reaches production.
+It is designed around a real internal-platform problem: teams need a safe way to create flags, separate configuration by environment, progressively expose releases, evaluate flags for individual subjects, and understand what changed before production traffic is affected.
 
 **ASP.NET Core · React · TypeScript · PostgreSQL · Entity Framework Core · Docker**
 
-## Current milestone — v0.1
+## Current milestone — v0.4
 
-The first milestone establishes the product model and the vertical slice from database to UI:
+**Audit history & production approvals — in progress.**
 
-- projects;
-- default `development`, `staging`, and `production` environments;
-- boolean feature flags;
-- per-environment enabled state;
-- percentage rollout;
-- project and flag REST endpoints;
-- responsive React control plane;
-- API contract tests;
-- Dockerized PostgreSQL;
-- CI for backend and frontend verification.
+The current milestone adds traceability and a review workflow on top of the runtime evaluation introduced in v0.3.
 
-Later milestones will add authentication/RBAC, targeting rules, audit history, production approvals, SDK evaluation and real-time updates.
+The first v0.4 slice now records feature flag environment changes with:
+
+- previous enabled state and rollout percentage;
+- requested enabled state and rollout percentage;
+- environment;
+- actor;
+- timestamp;
+- change status;
+- fields reserved for the upcoming approval/rejection review step.
+
+A flag's change history is exposed through the API and will be surfaced in the control plane before production approval behavior is enabled.
+
+### Milestone progress
+
+- **v0.1 — Core model:** projects, environments, flags, REST API, PostgreSQL, React control plane and CI.
+- **v0.2 — Flag management UI:** project/flag creation, per-environment state and rollout management, validation and operator feedback.
+- **v0.3 — Runtime evaluation:** deterministic subject bucketing and percentage rollout evaluation endpoint.
+- **v0.4 — Audit & approvals:** change history first, followed by approval/rejection for production changes. **Current.**
+- **v0.5 — SDK & updates:** application-facing SDK integration and runtime configuration delivery.
+- **v1.0 — Product polish:** documentation, deployment and portfolio-ready demo.
 
 ## Product model
 
@@ -39,6 +49,8 @@ Project
 ```
 
 This avoids duplicating the flag definition for every environment and keeps the identity of a flag stable throughout its lifecycle.
+
+From v0.4 onward, environment configuration changes also produce persisted history entries so operators can inspect how a flag reached its current state.
 
 ## Repository layout
 
@@ -84,6 +96,8 @@ npm run dev
 
 The web app listens on `http://localhost:5173`.
 
+> The project currently uses `EnsureCreated` during local development. When a milestone introduces a new persisted entity, an existing local PostgreSQL volume may need to be recreated. Explicit EF migrations are planned before hosted deployment.
+
 ## API examples
 
 Create a project:
@@ -117,6 +131,7 @@ Change a production rollout:
 ```http
 PATCH /api/projects/silva-commerce/flags/new-checkout/environments/production
 Content-Type: application/json
+X-ReleaseGate-Actor: tommaso
 
 {
   "enabled": true,
@@ -124,17 +139,39 @@ Content-Type: application/json
 }
 ```
 
+Evaluate the flag for one subject:
+
+```http
+POST /api/projects/silva-commerce/flags/new-checkout/evaluate
+Content-Type: application/json
+
+{
+  "environment": "production",
+  "subjectKey": "user-92841"
+}
+```
+
+Inspect flag change history:
+
+```http
+GET /api/projects/silva-commerce/flags/new-checkout/changes?environment=production
+```
+
 ## Engineering direction
 
-ReleaseGate deliberately starts with a narrow vertical slice instead of generating a broad admin dashboard full of placeholder features.
+ReleaseGate deliberately evolves through complete vertical slices instead of generating a broad admin dashboard full of placeholder features.
 
-The project will evolve around several constraints:
+The project is built around several constraints:
 
 - explicit domain boundaries;
 - environment-safe configuration;
+- deterministic percentage rollout evaluation;
 - small APIs that can later support SDK consumers;
 - accessibility and responsive behavior in the control plane;
 - deterministic builds and integration tests;
-- production changes that become auditable and approvable in later milestones.
+- auditable production configuration changes;
+- approval workflows before sensitive production changes are applied.
+
+Authentication/RBAC, explicit EF migrations, SDK delivery and real-time configuration updates remain future hardening steps.
 
 See `ARCHITECTURE.md` for the current decisions and planned boundaries.
