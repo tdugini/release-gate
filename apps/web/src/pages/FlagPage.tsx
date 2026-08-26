@@ -10,11 +10,19 @@ type EnvironmentDraft = {
   rolloutPercentage: number;
 };
 
+function formatFlagState(enabled: boolean, rolloutPercentage: number) {
+  return enabled ? `Enabled · ${rolloutPercentage}%` : 'Disabled';
+}
+
 export function FlagPage() {
   const { projectKey = '', flagKey = '' } = useParams();
   const { showToast } = useToast();
   const flagRequest = useAsync(
     () => api.flags.get(projectKey, flagKey),
+    [projectKey, flagKey],
+  );
+  const changesRequest = useAsync(
+    () => api.flags.changes(projectKey, flagKey),
     [projectKey, flagKey],
   );
   const [drafts, setDrafts] = useState<Record<string, EnvironmentDraft>>({});
@@ -57,7 +65,7 @@ export function FlagPage() {
 
     try {
       await api.flags.updateEnvironment(projectKey, flagKey, environment, draft);
-      await flagRequest.reload();
+      await Promise.all([flagRequest.reload(), changesRequest.reload()]);
       showToast(`${environment} configuration saved.`);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Could not save environment.';
@@ -181,6 +189,70 @@ export function FlagPage() {
                 </article>
               );
             })}
+          </section>
+
+          <section className="change-history surface" aria-labelledby="change-history-title">
+            <div className="change-history__header">
+              <div>
+                <p className="eyebrow">Audit log</p>
+                <h2 id="change-history-title">Change history</h2>
+              </div>
+              <span>{changesRequest.data?.length ?? 0} changes</span>
+            </div>
+
+            {changesRequest.loading && (
+              <div className="change-history__state">Loading change history…</div>
+            )}
+
+            {changesRequest.error && (
+              <div className="change-history__state change-history__state--error">
+                Change history could not be loaded.
+              </div>
+            )}
+
+            {changesRequest.data?.length === 0 && (
+              <div className="change-history__state">
+                No configuration changes have been recorded yet.
+              </div>
+            )}
+
+            {changesRequest.data && changesRequest.data.length > 0 && (
+              <div className="change-history__list">
+                {changesRequest.data.map((change) => (
+                  <article className="change-history__item" key={change.id}>
+                    <div className="change-history__meta">
+                      <strong>{change.environment}</strong>
+                      <span className={`change-status change-status--${change.status}`}>
+                        {change.status}
+                      </span>
+                    </div>
+
+                    <div className="change-history__transition">
+                      <span>
+                        {formatFlagState(
+                          change.previousEnabled,
+                          change.previousRolloutPercentage,
+                        )}
+                      </span>
+                      <span aria-hidden="true">→</span>
+                      <strong>
+                        {formatFlagState(
+                          change.requestedEnabled,
+                          change.requestedRolloutPercentage,
+                        )}
+                      </strong>
+                    </div>
+
+                    <footer>
+                      <span>{change.requestedBy}</span>
+                      <time dateTime={change.requestedAt}>
+                        {new Date(change.requestedAt).toLocaleString()}
+                      </time>
+                    </footer>
+                  </article>
+                ))}
+              </div>
+            )}
           </section>
 
           <aside className="decision-note">
