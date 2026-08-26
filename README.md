@@ -8,11 +8,11 @@ It is designed around a real internal-platform problem: teams need a safe way to
 
 ## Current milestone — v0.4
 
-**Audit history & production approvals — in progress.**
+**Audit history & production approvals — ready for verification.**
 
 The current milestone adds traceability and a review workflow on top of the runtime evaluation introduced in v0.3.
 
-The first v0.4 slices now record and display feature flag environment changes with:
+ReleaseGate now records and displays feature flag environment changes with:
 
 - previous enabled state and rollout percentage;
 - requested enabled state and rollout percentage;
@@ -20,16 +20,18 @@ The first v0.4 slices now record and display feature flag environment changes wi
 - actor;
 - timestamp;
 - change status;
-- fields reserved for the upcoming approval/rejection review step.
+- reviewer and review timestamp when applicable.
 
-A flag's change history is exposed through the API and surfaced directly in the control plane. Saving a new environment configuration refreshes both the flag state and its audit history.
+Non-production changes are still applied immediately and recorded as `applied`. Production changes are instead stored as `pending` requests without changing live configuration. An operator can then approve the request, applying the requested production state, or reject it while leaving the current production configuration untouched.
+
+Only one pending production change is allowed per flag at a time, and an already reviewed change cannot be reviewed again. The control plane surfaces the pending state directly on the production environment card and exposes approve/reject actions in the audit history.
 
 ### Milestone progress
 
 - **v0.1 — Core model:** projects, environments, flags, REST API, PostgreSQL, React control plane and CI.
 - **v0.2 — Flag management UI:** project/flag creation, per-environment state and rollout management, validation and operator feedback.
 - **v0.3 — Runtime evaluation:** deterministic subject bucketing and percentage rollout evaluation endpoint.
-- **v0.4 — Audit & approvals:** persisted change history and control-plane audit view, followed by approval/rejection for production changes. **Current.**
+- **v0.4 — Audit & approvals:** persisted change history, control-plane audit view and approval/rejection workflow for production changes. **Current.**
 - **v0.5 — SDK & updates:** application-facing SDK integration and runtime configuration delivery.
 - **v1.0 — Product polish:** documentation, deployment and portfolio-ready demo.
 
@@ -126,7 +128,7 @@ Content-Type: application/json
 }
 ```
 
-Change a production rollout:
+Submit a production rollout change for review:
 
 ```http
 PATCH /api/projects/silva-commerce/flags/new-checkout/environments/production
@@ -139,6 +141,26 @@ X-ReleaseGate-Actor: tommaso
 }
 ```
 
+Inspect flag change history:
+
+```http
+GET /api/projects/silva-commerce/flags/new-checkout/changes?environment=production
+```
+
+Approve a pending production change:
+
+```http
+POST /api/projects/silva-commerce/flags/new-checkout/changes/{changeId}/approve
+X-ReleaseGate-Actor: reviewer
+```
+
+Or reject it without changing the active production configuration:
+
+```http
+POST /api/projects/silva-commerce/flags/new-checkout/changes/{changeId}/reject
+X-ReleaseGate-Actor: reviewer
+```
+
 Evaluate the flag for one subject:
 
 ```http
@@ -149,12 +171,6 @@ Content-Type: application/json
   "environment": "production",
   "subjectKey": "user-92841"
 }
-```
-
-Inspect flag change history:
-
-```http
-GET /api/projects/silva-commerce/flags/new-checkout/changes?environment=production
 ```
 
 ## Engineering direction
