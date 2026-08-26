@@ -195,8 +195,9 @@
   align-items: center;
 }
 
-.range-input {
+.field input.range-input {
   width: 100%;
+  padding: 0;
   accent-color: var(--accent);
 }
 
