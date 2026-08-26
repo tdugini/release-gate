@@ -19,6 +19,18 @@ function jsonResponse(body, status = 200) {
   });
 }
 
+async function waitFor(predicate, timeoutMs = 1000) {
+  const deadline = Date.now() + timeoutMs;
+
+  while (!predicate()) {
+    if (Date.now() >= deadline) {
+      throw new Error('Timed out waiting for condition.');
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 test('initialize fetches one snapshot and serves repeated checks from memory', async () => {
   const requests = [];
   const client = new ReleaseGateClient({
@@ -123,4 +135,101 @@ test('refresh before initialize fails without making a request', async () => {
 
   await assert.rejects(() => client.refresh(), /initialized/);
   assert.equal(requestCount, 0);
+});
+
+test('initialize starts automatic refresh when an interval is configured', async (t) => {
+  let requestCount = 0;
+  const client = new ReleaseGateClient({
+    baseUrl: 'http://localhost:5080',
+    projectKey: 'silva-commerce',
+    environment: 'production',
+    refreshInterval: 15,
+    fetch: async () => {
+      requestCount += 1;
+      return jsonResponse(
+        snapshot([{ key: 'new-checkout', enabled: requestCount > 1 }]),
+      );
+    },
+  });
+  t.after(() => client.stop());
+
+  await client.initialize('user-123');
+
+  assert.equal(client.automaticRefreshActive, true);
+  assert.equal(client.isEnabled('new-checkout'), false);
+
+  await waitFor(() => requestCount >= 2 && client.isEnabled('new-checkout'));
+
+  assert.equal(client.isEnabled('new-checkout'), true);
+});
+
+test('automatic refresh keeps the last snapshot after a failure and retries', async (t) => {
+  let requestCount = 0;
+  const valuesAtError = [];
+  const client = new ReleaseGateClient({
+    baseUrl: 'http://localhost:5080',
+    projectKey: 'silva-commerce',
+    environment: 'production',
+    refreshInterval: 15,
+    onRefreshError: () => {
+      valuesAtError.push(client.isEnabled('new-checkout'));
+    },
+    fetch: async () => {
+      requestCount += 1;
+
+      if (requestCount === 2) {
+        return jsonResponse({ message: 'temporarily unavailable' }, 503);
+      }
+
+      return jsonResponse(
+        snapshot([{ key: 'new-checkout', enabled: requestCount === 1 }]),
+      );
+    },
+  });
+  t.after(() => client.stop());
+
+  await client.initialize('user-123');
+  assert.equal(client.isEnabled('new-checkout'), true);
+
+  await waitFor(() => valuesAtError.length === 1);
+  assert.deepEqual(valuesAtError, [true]);
+
+  await waitFor(() => requestCount >= 3 && !client.isEnabled('new-checkout'));
+  assert.equal(client.isEnabled('new-checkout'), false);
+});
+
+test('stop disables automatic refresh without clearing the current snapshot', async () => {
+  let requestCount = 0;
+  const client = new ReleaseGateClient({
+    baseUrl: 'http://localhost:5080',
+    projectKey: 'silva-commerce',
+    environment: 'production',
+    refreshInterval: 15,
+    fetch: async () => {
+      requestCount += 1;
+      return jsonResponse(snapshot([{ key: 'new-checkout', enabled: true }]));
+    },
+  });
+
+  await client.initialize('user-123');
+  client.stop();
+
+  assert.equal(client.automaticRefreshActive, false);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  assert.equal(requestCount, 1);
+  assert.equal(client.isEnabled('new-checkout'), true);
+});
+
+test('automatic refresh requires a positive interval', () => {
+  assert.throws(
+    () =>
+      new ReleaseGateClient({
+        baseUrl: 'http://localhost:5080',
+        projectKey: 'silva-commerce',
+        environment: 'production',
+        refreshInterval: 0,
+      }),
+    /greater than 0/,
+  );
 });
