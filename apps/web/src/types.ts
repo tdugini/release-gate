@@ -46,3 +46,17 @@ export type FeatureFlagDetail = {
   description: string | null;
   environments: FlagEnvironment[];
 };
+
+export type FlagChange = {
+  id: string;
+  environment: string;
+  previousEnabled: boolean;
+  previousRolloutPercentage: number;
+  requestedEnabled: boolean;
+  requestedRolloutPercentage: number;
+  status: string;
+  requestedBy: string;
+  requestedAt: string;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+};
