@@ -27,6 +27,7 @@ export function FlagPage() {
   );
   const [drafts, setDrafts] = useState<Record<string, EnvironmentDraft>>({});
   const [savingEnvironment, setSavingEnvironment] = useState<string | null>(null);
+  const [reviewingChangeId, setReviewingChangeId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!flagRequest.data) return;
@@ -43,6 +44,10 @@ export function FlagPage() {
       ),
     );
   }, [flagRequest.data]);
+
+  const pendingProductionChange = changesRequest.data?.find(
+    (change) => change.environment === 'production' && change.status === 'pending',
+  );
 
   const updateDraft = (
     environment: string,
@@ -66,12 +71,40 @@ export function FlagPage() {
     try {
       await api.flags.updateEnvironment(projectKey, flagKey, environment, draft);
       await Promise.all([flagRequest.reload(), changesRequest.reload()]);
-      showToast(`${environment} configuration saved.`);
+      showToast(
+        environment === 'production'
+          ? 'Production change submitted for approval.'
+          : `${environment} configuration saved.`,
+      );
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Could not save environment.';
       showToast(message, 'error');
     } finally {
       setSavingEnvironment(null);
+    }
+  };
+
+  const reviewChange = async (changeId: string, decision: 'approve' | 'reject') => {
+    setReviewingChangeId(changeId);
+
+    try {
+      if (decision === 'approve') {
+        await api.flags.approveChange(projectKey, flagKey, changeId);
+      } else {
+        await api.flags.rejectChange(projectKey, flagKey, changeId);
+      }
+
+      await Promise.all([flagRequest.reload(), changesRequest.reload()]);
+      showToast(
+        decision === 'approve'
+          ? 'Production change approved and applied.'
+          : 'Production change rejected.',
+      );
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Could not review change.';
+      showToast(message, 'error');
+    } finally {
+      setReviewingChangeId(null);
     }
   };
 
@@ -101,6 +134,8 @@ export function FlagPage() {
                 enabled: item.enabled,
                 rolloutPercentage: item.rolloutPercentage,
               };
+              const isProduction = item.environment === 'production';
+              const hasPendingChange = isProduction && Boolean(pendingProductionChange);
               const isSaving = savingEnvironment === item.environment;
               const isDirty =
                 draft.enabled !== item.enabled ||
@@ -116,9 +151,11 @@ export function FlagPage() {
                     <StatusDot enabled={draft.enabled} />
                   </div>
 
-                  {item.environment === 'production' && (
-                    <div className="production-warning">
-                      Production changes affect live traffic. Review both the enabled state and rollout percentage before saving.
+                  {isProduction && (
+                    <div className={`production-warning${hasPendingChange ? ' production-warning--pending' : ''}`}>
+                      {hasPendingChange
+                        ? 'A production change is awaiting review. Approve or reject it in Change history before submitting another change.'
+                        : 'Production changes require approval before they affect live traffic. Review both the enabled state and rollout percentage before submitting.'}
                     </div>
                   )}
 
@@ -130,6 +167,7 @@ export function FlagPage() {
                         className={draft.enabled ? 'is-enabled' : ''}
                         onClick={() => updateDraft(item.environment, { enabled: !draft.enabled })}
                         aria-pressed={draft.enabled}
+                        disabled={hasPendingChange}
                       >
                         {draft.enabled ? 'Enabled' : 'Disabled'}
                       </button>
@@ -151,16 +189,18 @@ export function FlagPage() {
                               rolloutPercentage: Number(event.target.value),
                             })
                           }
-                          disabled={!draft.enabled}
+                          disabled={!draft.enabled || hasPendingChange}
                         />
                         <span className="range-value">
                           {draft.enabled ? draft.rolloutPercentage : 0}%
                         </span>
                       </div>
                       <small>
-                        {draft.enabled
-                          ? 'Percentage of eligible traffic receiving the enabled variation.'
-                          : 'Enable the flag to apply a rollout percentage.'}
+                        {hasPendingChange
+                          ? 'The current production configuration remains active until the pending change is approved.'
+                          : draft.enabled
+                            ? 'Percentage of eligible traffic receiving the enabled variation.'
+                            : 'Enable the flag to apply a rollout percentage.'}
                       </small>
                     </div>
                   </div>
@@ -176,14 +216,24 @@ export function FlagPage() {
                   </div>
 
                   <footer className="environment-editor__footer">
-                    <small>Updated {new Date(item.updatedAt).toLocaleString()}</small>
+                    <small>
+                      {hasPendingChange
+                        ? 'Production configuration unchanged while review is pending.'
+                        : `Updated ${new Date(item.updatedAt).toLocaleString()}`}
+                    </small>
                     <button
                       className="button button--primary"
                       type="button"
-                      disabled={!isDirty || isSaving}
+                      disabled={!isDirty || isSaving || hasPendingChange}
                       onClick={() => void saveEnvironment(item.environment)}
                     >
-                      {isSaving ? 'Saving…' : isDirty ? 'Save changes' : 'Saved'}
+                      {isSaving
+                        ? isProduction ? 'Submitting…' : 'Saving…'
+                        : hasPendingChange
+                          ? 'Pending approval'
+                          : isDirty
+                            ? isProduction ? 'Submit for approval' : 'Save changes'
+                            : 'Saved'}
                     </button>
                   </footer>
                 </article>
@@ -218,39 +268,73 @@ export function FlagPage() {
 
             {changesRequest.data && changesRequest.data.length > 0 && (
               <div className="change-history__list">
-                {changesRequest.data.map((change) => (
-                  <article className="change-history__item" key={change.id}>
-                    <div className="change-history__meta">
-                      <strong>{change.environment}</strong>
-                      <span className={`change-status change-status--${change.status}`}>
-                        {change.status}
-                      </span>
-                    </div>
+                {changesRequest.data.map((change) => {
+                  const isReviewing = reviewingChangeId === change.id;
 
-                    <div className="change-history__transition">
-                      <span>
-                        {formatFlagState(
-                          change.previousEnabled,
-                          change.previousRolloutPercentage,
-                        )}
-                      </span>
-                      <span aria-hidden="true">→</span>
-                      <strong>
-                        {formatFlagState(
-                          change.requestedEnabled,
-                          change.requestedRolloutPercentage,
-                        )}
-                      </strong>
-                    </div>
+                  return (
+                    <article className="change-history__item" key={change.id}>
+                      <div className="change-history__meta">
+                        <strong>{change.environment}</strong>
+                        <span className={`change-status change-status--${change.status}`}>
+                          {change.status}
+                        </span>
+                      </div>
 
-                    <footer>
-                      <span>{change.requestedBy}</span>
-                      <time dateTime={change.requestedAt}>
-                        {new Date(change.requestedAt).toLocaleString()}
-                      </time>
-                    </footer>
-                  </article>
-                ))}
+                      <div className="change-history__transition">
+                        <span>
+                          {formatFlagState(
+                            change.previousEnabled,
+                            change.previousRolloutPercentage,
+                          )}
+                        </span>
+                        <span aria-hidden="true">→</span>
+                        <strong>
+                          {formatFlagState(
+                            change.requestedEnabled,
+                            change.requestedRolloutPercentage,
+                          )}
+                        </strong>
+                      </div>
+
+                      <footer>
+                        <span>Requested by {change.requestedBy}</span>
+                        <time dateTime={change.requestedAt}>
+                          {new Date(change.requestedAt).toLocaleString()}
+                        </time>
+                      </footer>
+
+                      {change.reviewedBy && change.reviewedAt && (
+                        <div className="change-history__reviewed">
+                          <span>Reviewed by {change.reviewedBy}</span>
+                          <time dateTime={change.reviewedAt}>
+                            {new Date(change.reviewedAt).toLocaleString()}
+                          </time>
+                        </div>
+                      )}
+
+                      {change.status === 'pending' && (
+                        <div className="change-history__actions">
+                          <button
+                            className="button button--danger"
+                            type="button"
+                            disabled={isReviewing}
+                            onClick={() => void reviewChange(change.id, 'reject')}
+                          >
+                            Reject
+                          </button>
+                          <button
+                            className="button button--primary"
+                            type="button"
+                            disabled={isReviewing}
+                            onClick={() => void reviewChange(change.id, 'approve')}
+                          >
+                            {isReviewing ? 'Reviewing…' : 'Approve'}
+                          </button>
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
               </div>
             )}
           </section>
