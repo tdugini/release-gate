@@ -14,6 +14,7 @@ public static class FeatureFlagEndpoints
 
         group.MapGet("", GetFlags);
         group.MapGet("/{flagKey}", GetFlag);
+        group.MapGet("/{flagKey}/changes", GetFlagChanges);
         group.MapPost("", CreateFlag);
         group.MapPost("/{flagKey}/evaluate", EvaluateFlag);
         group.MapPatch("/{flagKey}/environments/{environmentKey}", UpdateEnvironment);
@@ -97,6 +98,65 @@ public static class FeatureFlagEndpoints
             .SingleOrDefaultAsync(cancellationToken);
 
         return flag is null ? Results.NotFound() : Results.Ok(flag);
+    }
+
+    private static async Task<IResult> GetFlagChanges(
+        string projectKey,
+        string flagKey,
+        string? environment,
+        ReleaseGateDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var environmentKey = string.IsNullOrWhiteSpace(environment)
+            ? null
+            : environment.Trim().ToLowerInvariant();
+
+        var flagExists = await db.FeatureFlags
+            .AsNoTracking()
+            .AnyAsync(
+                x => x.Project.Key == projectKey && x.Key == flagKey,
+                cancellationToken);
+
+        if (!flagExists)
+        {
+            return Results.NotFound();
+        }
+
+        if (environmentKey is not null)
+        {
+            var environmentExists = await db.Environments
+                .AsNoTracking()
+                .AnyAsync(
+                    x => x.Project.Key == projectKey && x.Key == environmentKey,
+                    cancellationToken);
+
+            if (!environmentExists)
+            {
+                return Results.BadRequest(new { message = $"Unknown environment '{environmentKey}'." });
+            }
+        }
+
+        var changes = await db.FlagChanges
+            .AsNoTracking()
+            .Where(x => x.FeatureFlagEnvironment.FeatureFlag.Project.Key == projectKey
+                        && x.FeatureFlagEnvironment.FeatureFlag.Key == flagKey
+                        && (environmentKey == null || x.FeatureFlagEnvironment.Environment.Key == environmentKey))
+            .OrderByDescending(x => x.RequestedAt)
+            .Select(x => new FlagChangeResponse(
+                x.Id,
+                x.FeatureFlagEnvironment.Environment.Key,
+                x.PreviousEnabled,
+                x.PreviousRolloutPercentage,
+                x.RequestedEnabled,
+                x.RequestedRolloutPercentage,
+                x.Status,
+                x.RequestedBy,
+                x.RequestedAt,
+                x.ReviewedBy,
+                x.ReviewedAt))
+            .ToListAsync(cancellationToken);
+
+        return Results.Ok(changes);
     }
 
     private static async Task<IResult> CreateFlag(
@@ -238,6 +298,7 @@ public static class FeatureFlagEndpoints
         string flagKey,
         string environmentKey,
         UpdateFlagEnvironmentRequest request,
+        HttpContext httpContext,
         ReleaseGateDbContext db,
         CancellationToken cancellationToken)
     {
@@ -264,9 +325,26 @@ public static class FeatureFlagEndpoints
             return Results.NotFound();
         }
 
+        var previousEnabled = setting.Enabled;
+        var previousRolloutPercentage = setting.RolloutPercentage;
+        var nextRolloutPercentage = request.Enabled ? request.RolloutPercentage : 0;
+        var now = DateTimeOffset.UtcNow;
+
         setting.Enabled = request.Enabled;
-        setting.RolloutPercentage = request.Enabled ? request.RolloutPercentage : 0;
-        setting.UpdatedAt = DateTimeOffset.UtcNow;
+        setting.RolloutPercentage = nextRolloutPercentage;
+        setting.UpdatedAt = now;
+
+        db.FlagChanges.Add(new FlagChange
+        {
+            FeatureFlagEnvironmentId = setting.Id,
+            PreviousEnabled = previousEnabled,
+            PreviousRolloutPercentage = previousRolloutPercentage,
+            RequestedEnabled = setting.Enabled,
+            RequestedRolloutPercentage = setting.RolloutPercentage,
+            Status = "applied",
+            RequestedBy = GetActor(httpContext),
+            RequestedAt = now
+        });
 
         await db.SaveChangesAsync(cancellationToken);
 
@@ -275,5 +353,17 @@ public static class FeatureFlagEndpoints
             setting.Enabled,
             setting.RolloutPercentage,
             setting.UpdatedAt));
+    }
+
+    private static string GetActor(HttpContext httpContext)
+    {
+        var actor = httpContext.Request.Headers["X-ReleaseGate-Actor"].FirstOrDefault()?.Trim();
+
+        if (string.IsNullOrWhiteSpace(actor))
+        {
+            return "control-plane";
+        }
+
+        return actor.Length <= 120 ? actor : actor[..120];
     }
 }
