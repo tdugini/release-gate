@@ -17,6 +17,8 @@ public static class FeatureFlagEndpoints
         group.MapGet("/{flagKey}/changes", GetFlagChanges);
         group.MapPost("", CreateFlag);
         group.MapPost("/{flagKey}/evaluate", EvaluateFlag);
+        group.MapPost("/{flagKey}/changes/{changeId:guid}/approve", ApproveFlagChange);
+        group.MapPost("/{flagKey}/changes/{changeId:guid}/reject", RejectFlagChange);
         group.MapPatch("/{flagKey}/environments/{environmentKey}", UpdateEnvironment);
 
         return endpoints;
@@ -310,6 +312,7 @@ public static class FeatureFlagEndpoints
             });
         }
 
+        var normalizedEnvironmentKey = environmentKey.Trim().ToLowerInvariant();
         var setting = await db.FeatureFlagEnvironments
             .Include(x => x.FeatureFlag)
             .ThenInclude(x => x.Project)
@@ -317,7 +320,7 @@ public static class FeatureFlagEndpoints
             .SingleOrDefaultAsync(
                 x => x.FeatureFlag.Project.Key == projectKey
                      && x.FeatureFlag.Key == flagKey
-                     && x.Environment.Key == environmentKey,
+                     && x.Environment.Key == normalizedEnvironmentKey,
                 cancellationToken);
 
         if (setting is null)
@@ -329,6 +332,40 @@ public static class FeatureFlagEndpoints
         var previousRolloutPercentage = setting.RolloutPercentage;
         var nextRolloutPercentage = request.Enabled ? request.RolloutPercentage : 0;
         var now = DateTimeOffset.UtcNow;
+        var actor = GetActor(httpContext);
+
+        if (normalizedEnvironmentKey == "production")
+        {
+            var hasPendingChange = await db.FlagChanges.AnyAsync(
+                x => x.FeatureFlagEnvironmentId == setting.Id
+                     && x.Status == FlagChangeStatuses.Pending,
+                cancellationToken);
+
+            if (hasPendingChange)
+            {
+                return Results.Conflict(new
+                {
+                    message = "A production change is already pending review for this flag."
+                });
+            }
+
+            var pendingChange = new FlagChange
+            {
+                FeatureFlagEnvironmentId = setting.Id,
+                PreviousEnabled = previousEnabled,
+                PreviousRolloutPercentage = previousRolloutPercentage,
+                RequestedEnabled = request.Enabled,
+                RequestedRolloutPercentage = nextRolloutPercentage,
+                Status = FlagChangeStatuses.Pending,
+                RequestedBy = actor,
+                RequestedAt = now
+            };
+
+            db.FlagChanges.Add(pendingChange);
+            await db.SaveChangesAsync(cancellationToken);
+
+            return Results.Accepted(value: ToResponse(pendingChange, setting.Environment.Key));
+        }
 
         setting.Enabled = request.Enabled;
         setting.RolloutPercentage = nextRolloutPercentage;
@@ -341,8 +378,8 @@ public static class FeatureFlagEndpoints
             PreviousRolloutPercentage = previousRolloutPercentage,
             RequestedEnabled = setting.Enabled,
             RequestedRolloutPercentage = setting.RolloutPercentage,
-            Status = "applied",
-            RequestedBy = GetActor(httpContext),
+            Status = FlagChangeStatuses.Applied,
+            RequestedBy = actor,
             RequestedAt = now
         });
 
@@ -354,6 +391,103 @@ public static class FeatureFlagEndpoints
             setting.RolloutPercentage,
             setting.UpdatedAt));
     }
+
+    private static Task<IResult> ApproveFlagChange(
+        string projectKey,
+        string flagKey,
+        Guid changeId,
+        HttpContext httpContext,
+        ReleaseGateDbContext db,
+        CancellationToken cancellationToken) =>
+        ReviewFlagChange(
+            projectKey,
+            flagKey,
+            changeId,
+            approved: true,
+            httpContext,
+            db,
+            cancellationToken);
+
+    private static Task<IResult> RejectFlagChange(
+        string projectKey,
+        string flagKey,
+        Guid changeId,
+        HttpContext httpContext,
+        ReleaseGateDbContext db,
+        CancellationToken cancellationToken) =>
+        ReviewFlagChange(
+            projectKey,
+            flagKey,
+            changeId,
+            approved: false,
+            httpContext,
+            db,
+            cancellationToken);
+
+    private static async Task<IResult> ReviewFlagChange(
+        string projectKey,
+        string flagKey,
+        Guid changeId,
+        bool approved,
+        HttpContext httpContext,
+        ReleaseGateDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var change = await db.FlagChanges
+            .Include(x => x.FeatureFlagEnvironment)
+            .ThenInclude(x => x.FeatureFlag)
+            .ThenInclude(x => x.Project)
+            .Include(x => x.FeatureFlagEnvironment)
+            .ThenInclude(x => x.Environment)
+            .SingleOrDefaultAsync(
+                x => x.Id == changeId
+                     && x.FeatureFlagEnvironment.FeatureFlag.Project.Key == projectKey
+                     && x.FeatureFlagEnvironment.FeatureFlag.Key == flagKey,
+                cancellationToken);
+
+        if (change is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (change.Status != FlagChangeStatuses.Pending)
+        {
+            return Results.Conflict(new
+            {
+                message = $"Change has already been {change.Status}."
+            });
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        change.Status = approved ? FlagChangeStatuses.Approved : FlagChangeStatuses.Rejected;
+        change.ReviewedBy = GetActor(httpContext);
+        change.ReviewedAt = now;
+
+        if (approved)
+        {
+            change.FeatureFlagEnvironment.Enabled = change.RequestedEnabled;
+            change.FeatureFlagEnvironment.RolloutPercentage = change.RequestedRolloutPercentage;
+            change.FeatureFlagEnvironment.UpdatedAt = now;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        return Results.Ok(ToResponse(change, change.FeatureFlagEnvironment.Environment.Key));
+    }
+
+    private static FlagChangeResponse ToResponse(FlagChange change, string environment) =>
+        new(
+            change.Id,
+            environment,
+            change.PreviousEnabled,
+            change.PreviousRolloutPercentage,
+            change.RequestedEnabled,
+            change.RequestedRolloutPercentage,
+            change.Status,
+            change.RequestedBy,
+            change.RequestedAt,
+            change.ReviewedBy,
+            change.ReviewedAt);
 
     private static string GetActor(HttpContext httpContext)
     {
