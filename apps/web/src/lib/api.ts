@@ -1,6 +1,7 @@
 import type {
   FeatureFlagDetail,
   FeatureFlagSummary,
+  FlagChange,
   ProjectDetail,
   ProjectSummary,
 } from '../types';
@@ -75,6 +76,12 @@ export const api = {
       ),
     get: (projectKey: string, flagKey: string) =>
       request<FeatureFlagDetail>(`/api/projects/${projectKey}/flags/${flagKey}`),
+    changes: (projectKey: string, flagKey: string, environment?: string) => {
+      const query = environment ? `?environment=${encodeURIComponent(environment)}` : '';
+      return request<FlagChange[]>(
+        `/api/projects/${projectKey}/flags/${flagKey}/changes${query}`,
+      );
+    },
     create: (
       projectKey: string,
       input: { name: string; key: string; description?: string },
