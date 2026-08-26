@@ -47,6 +47,8 @@ export type FeatureFlagDetail = {
   environments: FlagEnvironment[];
 };
 
+export type FlagChangeStatus = 'applied' | 'pending' | 'approved' | 'rejected';
+
 export type FlagChange = {
   id: string;
   environment: string;
@@ -54,7 +56,7 @@ export type FlagChange = {
   previousRolloutPercentage: number;
   requestedEnabled: boolean;
   requestedRolloutPercentage: number;
-  status: string;
+  status: FlagChangeStatus;
   requestedBy: string;
   requestedAt: string;
   reviewedBy: string | null;
