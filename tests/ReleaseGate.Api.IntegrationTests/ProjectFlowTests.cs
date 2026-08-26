@@ -52,7 +52,7 @@ public sealed class ProjectFlowTests(ReleaseGateApiFactory factory)
         Assert.Equal(HttpStatusCode.Created, createFlag.StatusCode);
 
         var update = await _client.PatchAsJsonAsync(
-            "/api/projects/atlas-project/flags/new-checkout/environments/production",
+            "/api/projects/atlas-project/flags/new-checkout/environments/staging",
             new UpdateFlagEnvironmentRequest(true, 25),
             cancellationToken);
 
@@ -72,10 +72,10 @@ public sealed class ProjectFlowTests(ReleaseGateApiFactory factory)
         var productionFlag = Assert.Single(productionFlags);
         var stagingFlag = Assert.Single(stagingFlags);
 
-        Assert.True(productionFlag.Enabled);
-        Assert.Equal(25, productionFlag.RolloutPercentage);
+        Assert.True(stagingFlag.Enabled);
+        Assert.Equal(25, stagingFlag.RolloutPercentage);
 
-        Assert.False(stagingFlag.Enabled);
-        Assert.Equal(0, stagingFlag.RolloutPercentage);
+        Assert.False(productionFlag.Enabled);
+        Assert.Equal(0, productionFlag.RolloutPercentage);
     }
 }
