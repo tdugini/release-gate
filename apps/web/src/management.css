@@ -322,9 +322,17 @@
   color: var(--muted);
 }
 
-.change-history__item footer {
+.change-history__item footer,
+.change-history__reviewed {
   color: var(--muted);
   font-size: 0.74rem;
+}
+
+.change-history__reviewed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 @media (max-width: 720px) {
@@ -343,7 +351,8 @@
 
   .change-history__header,
   .change-history__meta,
-  .change-history__item footer {
+  .change-history__item footer,
+  .change-history__reviewed {
     align-items: flex-start;
     flex-direction: column;
   }
