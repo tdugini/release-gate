@@ -125,6 +125,92 @@ public sealed class FlagChangeAuditTests(ReleaseGateApiFactory factory)
         Assert.Equal(0, productionFlag.RolloutPercentage);
     }
 
+    [Fact]
+    public async Task Second_production_change_is_rejected_while_one_is_pending()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await CreateProjectAndFlag("pending-conflict-project");
+
+        using var firstRequest = CreateUpdateRequest(
+            "/api/projects/pending-conflict-project/flags/new-checkout/environments/production",
+            true,
+            30,
+            "release-author");
+
+        var firstUpdate = await _client.SendAsync(firstRequest, cancellationToken);
+        Assert.Equal(HttpStatusCode.Accepted, firstUpdate.StatusCode);
+
+        using var secondRequest = CreateUpdateRequest(
+            "/api/projects/pending-conflict-project/flags/new-checkout/environments/production",
+            true,
+            80,
+            "another-author");
+
+        var secondUpdate = await _client.SendAsync(secondRequest, cancellationToken);
+
+        Assert.Equal(HttpStatusCode.Conflict, secondUpdate.StatusCode);
+
+        var changes = await _client.GetFromJsonAsync<List<FlagChangeResponse>>(
+            "/api/projects/pending-conflict-project/flags/new-checkout/changes?environment=production",
+            cancellationToken);
+
+        var pendingChange = Assert.Single(changes!);
+        Assert.Equal("pending", pendingChange.Status);
+        Assert.Equal(30, pendingChange.RequestedRolloutPercentage);
+
+        var productionFlag = await GetProductionFlag("pending-conflict-project", cancellationToken);
+        Assert.False(productionFlag.Enabled);
+        Assert.Equal(0, productionFlag.RolloutPercentage);
+    }
+
+    [Fact]
+    public async Task Reviewing_an_already_reviewed_production_change_returns_conflict()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await CreateProjectAndFlag("review-conflict-project");
+
+        using var updateRequest = CreateUpdateRequest(
+            "/api/projects/review-conflict-project/flags/new-checkout/environments/production",
+            true,
+            45,
+            "release-author");
+
+        var update = await _client.SendAsync(updateRequest, cancellationToken);
+        Assert.Equal(HttpStatusCode.Accepted, update.StatusCode);
+
+        var pendingChange = await update.Content.ReadFromJsonAsync<FlagChangeResponse>(cancellationToken);
+        Assert.NotNull(pendingChange);
+
+        using var approveRequest = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/api/projects/review-conflict-project/flags/new-checkout/changes/{pendingChange.Id}/approve");
+        approveRequest.Headers.Add("X-ReleaseGate-Actor", "first-reviewer");
+
+        var approve = await _client.SendAsync(approveRequest, cancellationToken);
+        Assert.Equal(HttpStatusCode.OK, approve.StatusCode);
+
+        using var rejectRequest = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/api/projects/review-conflict-project/flags/new-checkout/changes/{pendingChange.Id}/reject");
+        rejectRequest.Headers.Add("X-ReleaseGate-Actor", "second-reviewer");
+
+        var reject = await _client.SendAsync(rejectRequest, cancellationToken);
+
+        Assert.Equal(HttpStatusCode.Conflict, reject.StatusCode);
+
+        var productionFlag = await GetProductionFlag("review-conflict-project", cancellationToken);
+        Assert.True(productionFlag.Enabled);
+        Assert.Equal(45, productionFlag.RolloutPercentage);
+
+        var changes = await _client.GetFromJsonAsync<List<FlagChangeResponse>>(
+            "/api/projects/review-conflict-project/flags/new-checkout/changes?environment=production",
+            cancellationToken);
+
+        var reviewedChange = Assert.Single(changes!);
+        Assert.Equal("approved", reviewedChange.Status);
+        Assert.Equal("first-reviewer", reviewedChange.ReviewedBy);
+    }
+
     private async Task CreateProjectAndFlag(string projectKey)
     {
         var cancellationToken = TestContext.Current.CancellationToken;
