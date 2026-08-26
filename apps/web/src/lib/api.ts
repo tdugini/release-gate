@@ -2,6 +2,7 @@ import type {
   FeatureFlagDetail,
   FeatureFlagSummary,
   FlagChange,
+  FlagEnvironment,
   ProjectDetail,
   ProjectSummary,
 } from '../types';
@@ -99,17 +100,22 @@ export const api = {
       environment: string,
       input: { enabled: boolean; rolloutPercentage: number },
     ) =>
-      request<{
-        environment: string;
-        enabled: boolean;
-        rolloutPercentage: number;
-        updatedAt: string;
-      }>(
+      request<FlagEnvironment | FlagChange>(
         `/api/projects/${projectKey}/flags/${flagKey}/environments/${environment}`,
         {
           method: 'PATCH',
           body: JSON.stringify(input),
         },
+      ),
+    approveChange: (projectKey: string, flagKey: string, changeId: string) =>
+      request<FlagChange>(
+        `/api/projects/${projectKey}/flags/${flagKey}/changes/${changeId}/approve`,
+        { method: 'POST' },
+      ),
+    rejectChange: (projectKey: string, flagKey: string, changeId: string) =>
+      request<FlagChange>(
+        `/api/projects/${projectKey}/flags/${flagKey}/changes/${changeId}/reject`,
+        { method: 'POST' },
       ),
   },
 };
