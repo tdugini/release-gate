@@ -140,10 +140,12 @@ export function FlagPage() {
               };
               const isProduction = item.environment === 'production';
               const hasPendingChange = isProduction && Boolean(pendingProductionChange);
+              const canEditEnvironment = canOperate && !hasPendingChange;
               const isSaving = savingEnvironment === item.environment;
               const isDirty =
                 draft.enabled !== item.enabled ||
                 draft.rolloutPercentage !== item.rolloutPercentage;
+              const effectiveRollout = draft.enabled ? draft.rolloutPercentage : 0;
 
               return (
                 <article className="environment-card environment-card--editable" key={item.environment}>
@@ -166,39 +168,60 @@ export function FlagPage() {
                   <div className="environment-editor__controls">
                     <div className="toggle-field">
                       <span className="field__label">Status</span>
-                      <button
-                        type="button"
-                        className={draft.enabled ? 'is-enabled' : ''}
-                        onClick={() => updateDraft(item.environment, { enabled: !draft.enabled })}
-                        aria-pressed={draft.enabled}
-                        disabled={!canOperate || hasPendingChange}
-                      >
-                        {draft.enabled ? 'Enabled' : 'Disabled'}
-                      </button>
+                      {canEditEnvironment ? (
+                        <button
+                          type="button"
+                          className={`toggle-switch${draft.enabled ? ' is-enabled' : ''}`}
+                          onClick={() => updateDraft(item.environment, { enabled: !draft.enabled })}
+                          aria-pressed={draft.enabled}
+                          aria-label={`${item.environment} flag status: ${draft.enabled ? 'enabled' : 'disabled'}`}
+                        >
+                          <span className="toggle-switch__track" aria-hidden="true">
+                            <span className="toggle-switch__thumb" />
+                          </span>
+                          <span className="toggle-switch__label">
+                            {draft.enabled ? 'Enabled' : 'Disabled'}
+                          </span>
+                        </button>
+                      ) : (
+                        <div className={`toggle-readonly${draft.enabled ? ' is-enabled' : ''}`}>
+                          <span className="toggle-readonly__dot" aria-hidden="true" />
+                          <strong>{draft.enabled ? 'Enabled' : 'Disabled'}</strong>
+                        </div>
+                      )}
                     </div>
 
-                    <div className="field">
+                    <div className="field rollout-field">
                       <label htmlFor={`rollout-${item.environment}`}>Rollout</label>
-                      <div className="range-field">
-                        <input
-                          id={`rollout-${item.environment}`}
-                          className="range-input"
-                          type="range"
-                          min="0"
-                          max="100"
-                          step="1"
-                          value={draft.rolloutPercentage}
-                          onChange={(event) =>
-                            updateDraft(item.environment, {
-                              rolloutPercentage: Number(event.target.value),
-                            })
-                          }
-                          disabled={!canOperate || !draft.enabled || hasPendingChange}
-                        />
-                        <span className="range-value">
-                          {draft.enabled ? draft.rolloutPercentage : 0}%
-                        </span>
-                      </div>
+                      {canEditEnvironment ? (
+                        <div className="range-field">
+                          <input
+                            id={`rollout-${item.environment}`}
+                            className="range-input"
+                            type="range"
+                            min="0"
+                            max="100"
+                            step="1"
+                            value={draft.rolloutPercentage}
+                            style={{
+                              background: draft.enabled
+                                ? `linear-gradient(to right, var(--accent) 0%, var(--accent) ${draft.rolloutPercentage}%, #dedde7 ${draft.rolloutPercentage}%, #dedde7 100%)`
+                                : '#dedde7',
+                            }}
+                            onChange={(event) =>
+                              updateDraft(item.environment, {
+                                rolloutPercentage: Number(event.target.value),
+                              })
+                            }
+                            disabled={!draft.enabled}
+                          />
+                          <span className="range-value">{effectiveRollout}%</span>
+                        </div>
+                      ) : (
+                        <div className="range-readonly">
+                          <strong>{effectiveRollout}%</strong>
+                        </div>
+                      )}
                       <small>
                         {!canOperate
                           ? 'Operator role required to change environment configuration.'
@@ -214,10 +237,10 @@ export function FlagPage() {
                   <div className="environment-card__rollout">
                     <div>
                       <span>Effective rollout</span>
-                      <strong>{draft.enabled ? draft.rolloutPercentage : 0}%</strong>
+                      <strong>{effectiveRollout}%</strong>
                     </div>
-                    <div className="progress">
-                      <span style={{ width: `${draft.enabled ? draft.rolloutPercentage : 0}%` }} />
+                    <div className="progress" aria-hidden="true">
+                      <span style={{ width: `${effectiveRollout}%` }} />
                     </div>
                   </div>
 
@@ -227,20 +250,28 @@ export function FlagPage() {
                         ? 'Production configuration unchanged while review is pending.'
                         : `Updated ${new Date(item.updatedAt).toLocaleString()}`}
                     </small>
-                    {canOperate && (
+                    {canOperate && hasPendingChange && (
+                      <span className="pending-approval-status">
+                        <span aria-hidden="true" />
+                        Pending approval
+                      </span>
+                    )}
+                    {canOperate && !hasPendingChange && !isDirty && (
+                      <span className="saved-status">
+                        <span aria-hidden="true">✓</span>
+                        Saved
+                      </span>
+                    )}
+                    {canOperate && !hasPendingChange && isDirty && (
                       <button
                         className="button button--primary"
                         type="button"
-                        disabled={!isDirty || isSaving || hasPendingChange}
+                        disabled={isSaving}
                         onClick={() => void saveEnvironment(item.environment)}
                       >
                         {isSaving
                           ? isProduction ? 'Submitting…' : 'Saving…'
-                          : hasPendingChange
-                            ? 'Pending approval'
-                            : isDirty
-                              ? isProduction ? 'Submit for approval' : 'Save changes'
-                              : 'Saved'}
+                          : isProduction ? 'Submit for approval' : 'Save changes'}
                       </button>
                     )}
                   </footer>
@@ -357,14 +388,6 @@ export function FlagPage() {
               </div>
             )}
           </section>
-
-          <aside className="decision-note">
-            <span className="decision-note__label">Why environment state is separate</span>
-            <p>
-              The flag keeps one stable identity while rollout state changes independently
-              across development, staging and production.
-            </p>
-          </aside>
         </>
       )}
     </div>
