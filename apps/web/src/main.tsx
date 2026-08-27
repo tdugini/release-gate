@@ -8,6 +8,7 @@ import './auth.css';
 import './v1-polish.css';
 import './v1-second-pass.css';
 import './v1-third-pass.css';
+import './v1-fourth-pass.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
