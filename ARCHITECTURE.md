@@ -101,15 +101,33 @@ Automatic polling schedules the next refresh only after the previous request fin
 
 ReleaseGate uses Entity Framework Core with the Npgsql PostgreSQL provider.
 
-During local development the schema is currently created automatically with `EnsureCreated` to keep bootstrap simple. Before hosted deployment this should move to explicit EF migrations so schema evolution is versioned and repeatable.
+Starting with v0.7, schema evolution is managed through explicit EF Core migrations. The repository contains the migration history source files and model snapshot, and pins the `dotnet-ef` CLI through the local tool manifest so development and CI use a reproducible tool version.
+
+In local development the API runs `MigrateAsync()` before development seeding. A new database therefore receives the complete schema through the normal migration pipeline rather than through `EnsureCreated`.
+
+### Legacy v0.1–v0.6 databases
+
+Earlier ReleaseGate versions used `EnsureCreated`, so existing local databases can contain the complete schema without an `__EFMigrationsHistory` table.
+
+`DatabaseMigrationBootstrapper` handles this transition narrowly:
+
+- if no ReleaseGate tables exist, normal migrations create the schema;
+- if migration history already exists, normal migrations continue;
+- if all expected legacy ReleaseGate tables exist and migration history does not, the initial migration is recorded as a baseline without recreating tables or deleting data;
+- if only part of the expected legacy schema exists, startup fails instead of guessing which migration state the database represents.
+
+This compatibility path is intentionally limited to the known pre-v0.7 schema. Once a database has been baselined, future changes use normal EF migration history.
+
+The upgrade path was manually verified using a database created by the v0.6 `EnsureCreated` bootstrap: after switching to v0.7 with the same PostgreSQL volume, existing projects and feature flags remained available and `20260827090000_InitialSchema` was present in `__EFMigrationsHistory`.
+
+CI also checks `dotnet ef migrations has-pending-model-changes` and applies the committed migrations against an empty PostgreSQL service. This catches both forgotten migrations and migrations that cannot build a clean database from scratch.
 
 ## Current hardening boundaries
 
-Authentication and role-based authorization are now implemented for the human control plane. The next hardening steps are expected to include:
+Authentication, role-based authorization and versioned database migrations are now implemented for the control plane and persistence layer. The next hardening steps are expected to include:
 
-- explicit EF migrations;
-- integration with a real OIDC/OAuth identity provider while preserving the current subject/role model;
 - a production-grade application credential strategy for runtime snapshot access;
+- integration with a real OIDC/OAuth identity provider while preserving the current subject/role model;
 - SDK publishing/versioning;
 - production deployment and operational documentation;
 - push-based or streaming configuration delivery only if polling becomes an actual product constraint.
