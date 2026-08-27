@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { DirectionalIcon } from '../components/DirectionalIcon';
 import { useAuth } from '../components/AuthProvider';
 import { StatusDot } from '../components/StatusDot';
 import { useToast } from '../components/ToastProvider';
@@ -114,8 +115,12 @@ export function FlagPage() {
 
   return (
     <div className="page page--narrow">
-      <Link className="back-link" to={`/projects/${projectKey}`}>
-        ← Project
+      <Link
+        className="back-link"
+        to={`/projects/${projectKey}`}
+        aria-label="Back to project"
+      >
+        <DirectionalIcon direction="left" />
       </Link>
 
       {flagRequest.loading && <div className="surface empty-state">Loading flag…</div>}
@@ -329,7 +334,10 @@ export function FlagPage() {
                             change.previousRolloutPercentage,
                           )}
                         </span>
-                        <span aria-hidden="true">→</span>
+                        <DirectionalIcon
+                          direction="arrow-right"
+                          className="change-history__transition-arrow"
+                        />
                         <strong>
                           {formatFlagState(
                             change.requestedEnabled,
