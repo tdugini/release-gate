@@ -2,37 +2,34 @@
 
 ReleaseGate is a self-hosted feature flag and rollout management platform built as a production-oriented full-stack portfolio project.
 
-It is designed around a real internal-platform problem: teams need a safe way to create flags, separate configuration by environment, progressively expose releases, evaluate flags for individual subjects, and understand what changed before production traffic is affected.
+It is designed around a real internal-platform problem: teams need a safe way to create flags, separate configuration by environment, progressively expose releases, evaluate flags for individual subjects, understand what changed before production traffic is affected, and deliver those decisions efficiently to applications.
 
 **ASP.NET Core · React · TypeScript · PostgreSQL · Entity Framework Core · Docker**
 
-## Current milestone — v0.4
+## Current milestone — v0.5
 
-**Audit history & production approvals — ready for verification.**
+**SDK & runtime updates — in progress.**
 
-The current milestone adds traceability and a review workflow on top of the runtime evaluation introduced in v0.3.
+The current milestone adds an application-facing runtime boundary on top of deterministic evaluation and production-safe flag management.
 
-ReleaseGate now records and displays feature flag environment changes with:
+ReleaseGate now provides:
 
-- previous enabled state and rollout percentage;
-- requested enabled state and rollout percentage;
-- environment;
-- actor;
-- timestamp;
-- change status;
-- reviewer and review timestamp when applicable.
+- a subject-specific runtime snapshot containing evaluated flag values;
+- a dependency-free JavaScript/TypeScript SDK;
+- in-memory `isEnabled()` checks after one snapshot fetch;
+- manual and automatic snapshot refresh;
+- resilient polling that preserves the last valid configuration on failures;
+- conditional HTTP revalidation with ETags and `304 Not Modified` responses.
 
-Non-production changes are still applied immediately and recorded as `applied`. Production changes are instead stored as `pending` requests without changing live configuration. An operator can then approve the request, applying the requested production state, or reject it while leaving the current production configuration untouched.
-
-Only one pending production change is allowed per flag at a time, and an already reviewed change cannot be reviewed again. The control plane surfaces the pending state directly on the production environment card and exposes approve/reject actions in the audit history.
+The runtime API intentionally returns only the final evaluated boolean for each flag. Rollout percentages, buckets, pending changes and audit metadata remain part of the operator-facing control plane.
 
 ### Milestone progress
 
 - **v0.1 — Core model:** projects, environments, flags, REST API, PostgreSQL, React control plane and CI.
 - **v0.2 — Flag management UI:** project/flag creation, per-environment state and rollout management, validation and operator feedback.
 - **v0.3 — Runtime evaluation:** deterministic subject bucketing and percentage rollout evaluation endpoint.
-- **v0.4 — Audit & approvals:** persisted change history, control-plane audit view and approval/rejection workflow for production changes. **Current.**
-- **v0.5 — SDK & updates:** application-facing SDK integration and runtime configuration delivery.
+- **v0.4 — Audit & approvals:** persisted change history, control-plane audit view and approval/rejection workflow for production changes.
+- **v0.5 — SDK & updates:** runtime snapshot delivery, JavaScript/TypeScript SDK, automatic refresh and conditional revalidation. **Current.**
 - **v1.0 — Product polish:** documentation, deployment and portfolio-ready demo.
 
 ## Product model
@@ -52,7 +49,7 @@ Project
 
 This avoids duplicating the flag definition for every environment and keeps the identity of a flag stable throughout its lifecycle.
 
-From v0.4 onward, environment configuration changes also produce persisted history entries so operators can inspect how a flag reached its current state.
+Environment configuration changes also produce persisted history entries so operators can inspect how a flag reached its current state. Production changes must be reviewed before they affect runtime traffic.
 
 ## Repository layout
 
@@ -60,6 +57,9 @@ From v0.4 onward, environment configuration changes also produce persisted histo
 apps/
 ├── api/ReleaseGate.Api/      ASP.NET Core API
 └── web/                      React + TypeScript control plane
+
+packages/
+└── sdk-js/                   JavaScript/TypeScript runtime SDK
 
 tests/
 └── ReleaseGate.Api.IntegrationTests/
@@ -97,6 +97,15 @@ npm run dev
 ```
 
 The web app listens on `http://localhost:5173`.
+
+### 4. Validate the JavaScript SDK
+
+```bash
+cd packages/sdk-js
+npm ci
+npm run typecheck
+npm test
+```
 
 > The project currently uses `EnsureCreated` during local development. When a milestone introduces a new persisted entity, an existing local PostgreSQL volume may need to be recreated. Explicit EF migrations are planned before hosted deployment.
 
@@ -161,7 +170,7 @@ POST /api/projects/silva-commerce/flags/new-checkout/changes/{changeId}/reject
 X-ReleaseGate-Actor: reviewer
 ```
 
-Evaluate the flag for one subject:
+Evaluate one flag for one subject:
 
 ```http
 POST /api/projects/silva-commerce/flags/new-checkout/evaluate
@@ -173,21 +182,58 @@ Content-Type: application/json
 }
 ```
 
+Fetch the application-facing runtime snapshot for that subject:
+
+```http
+GET /api/runtime/projects/silva-commerce/environments/production/snapshot?subjectKey=user-92841
+```
+
+Runtime responses include an ETag. Consumers can revalidate the cached snapshot without downloading an unchanged JSON payload:
+
+```http
+GET /api/runtime/projects/silva-commerce/environments/production/snapshot?subjectKey=user-92841
+If-None-Match: W/"..."
+```
+
+When the evaluated configuration has not changed, ReleaseGate responds with `304 Not Modified`.
+
+## JavaScript SDK
+
+```ts
+import { ReleaseGateClient } from '@releasegate/sdk-js';
+
+const client = new ReleaseGateClient({
+  baseUrl: 'http://localhost:5080',
+  projectKey: 'silva-commerce',
+  environment: 'production',
+  refreshInterval: 30_000,
+});
+
+await client.initialize('user-92841');
+
+if (client.isEnabled('new-checkout')) {
+  // expose the new release path
+}
+```
+
+After initialization, flag checks are local in-memory lookups. Refreshes revalidate the current snapshot through ETags, and automatic polling never overlaps requests.
+
 ## Engineering direction
 
 ReleaseGate deliberately evolves through complete vertical slices instead of generating a broad admin dashboard full of placeholder features.
 
 The project is built around several constraints:
 
-- explicit domain boundaries;
+- explicit control-plane and runtime boundaries;
 - environment-safe configuration;
 - deterministic percentage rollout evaluation;
-- small APIs that can later support SDK consumers;
+- efficient snapshot-based SDK consumption;
+- resilient runtime configuration refresh;
 - accessibility and responsive behavior in the control plane;
 - deterministic builds and integration tests;
 - auditable production configuration changes;
 - approval workflows before sensitive production changes are applied.
 
-Authentication/RBAC, explicit EF migrations, SDK delivery and real-time configuration updates remain future hardening steps.
+Authentication/RBAC, explicit EF migrations, SDK publishing/versioning and production deployment remain future hardening steps.
 
 See `ARCHITECTURE.md` for the current decisions and planned boundaries.
