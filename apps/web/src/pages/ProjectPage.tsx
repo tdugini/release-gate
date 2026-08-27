@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Dialog } from '../components/Dialog';
+import { DirectionalIcon } from '../components/DirectionalIcon';
 import { useAuth } from '../components/AuthProvider';
 import { StatusDot } from '../components/StatusDot';
 import { useToast } from '../components/ToastProvider';
@@ -135,7 +136,9 @@ export function ProjectPage() {
   if (projectRequest.error || !projectRequest.data) {
     return (
       <div className="page">
-        <Link className="back-link" to="/">← Projects</Link>
+        <Link className="back-link" to="/" aria-label="Back to projects">
+          <DirectionalIcon direction="left" />
+        </Link>
         <div className="surface empty-state empty-state--error">
           Project could not be loaded.
         </div>
@@ -147,7 +150,9 @@ export function ProjectPage() {
 
   return (
     <div className="page">
-      <Link className="back-link" to="/">← Projects</Link>
+      <Link className="back-link" to="/" aria-label="Back to projects">
+        <DirectionalIcon direction="left" />
+      </Link>
 
       <header className="project-header">
         <div>
@@ -249,9 +254,7 @@ export function ProjectPage() {
               ) : (
                 <span />
               )}
-              <svg className="row-arrow" viewBox="0 0 20 20" aria-hidden="true">
-                <path d="m8 5 5 5-5 5" />
-              </svg>
+              <DirectionalIcon direction="right" className="row-arrow" />
             </div>
           );
         })}
