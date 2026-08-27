@@ -3,6 +3,7 @@ import type {
   FeatureFlagDetail,
   FeatureFlagSummary,
   FlagChange,
+  FlagChangeHistory,
   FlagEnvironment,
   ProjectDetail,
   ProjectSummary,
@@ -100,6 +101,21 @@ export const api = {
       const query = environment ? `?environment=${encodeURIComponent(environment)}` : '';
       return request<FlagChange[]>(
         `/api/projects/${projectKey}/flags/${flagKey}/changes${query}`,
+      );
+    },
+    changeHistory: (
+      projectKey: string,
+      flagKey: string,
+      options: { page?: number; pageSize?: number; environment?: string } = {},
+    ) => {
+      const params = new URLSearchParams({
+        page: String(options.page ?? 1),
+        pageSize: String(options.pageSize ?? 10),
+      });
+      if (options.environment) params.set('environment', options.environment);
+
+      return request<FlagChangeHistory>(
+        `/api/projects/${projectKey}/flags/${flagKey}/change-history?${params.toString()}`,
       );
     },
     create: (
