@@ -89,6 +89,13 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(input),
       }),
+    update: (projectKey: string, input: { name: string; description?: string }) =>
+      request<ProjectDetail>(`/api/projects/${projectKey}`, {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      }),
+    delete: (projectKey: string) =>
+      request<void>(`/api/projects/${projectKey}`, { method: 'DELETE' }),
   },
   flags: {
     list: (projectKey: string, environment: string) =>
@@ -129,6 +136,17 @@ export const api = {
           body: JSON.stringify(input),
         },
       ),
+    update: (
+      projectKey: string,
+      flagKey: string,
+      input: { name: string; description?: string },
+    ) =>
+      request<FeatureFlagDetail>(`/api/projects/${projectKey}/flags/${flagKey}`, {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      }),
+    delete: (projectKey: string, flagKey: string) =>
+      request<void>(`/api/projects/${projectKey}/flags/${flagKey}`, { method: 'DELETE' }),
     updateEnvironment: (
       projectKey: string,
       flagKey: string,
