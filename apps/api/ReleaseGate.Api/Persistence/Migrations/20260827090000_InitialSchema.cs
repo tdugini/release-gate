@@ -116,7 +116,7 @@ public partial class InitialSchema : Migration
             {
                 table.PrimaryKey("PK_flag_changes", x => x.Id);
                 table.ForeignKey(
-                    name: "FK_flag_changes_feature_flag_environments_FeatureFlagEnvironmen~",
+                    name: "FK_flag_changes_feature_flag_environments_FeatureFlagEnvironme~",
                     column: x => x.FeatureFlagEnvironmentId,
                     principalTable: "feature_flag_environments",
                     principalColumn: "Id",
