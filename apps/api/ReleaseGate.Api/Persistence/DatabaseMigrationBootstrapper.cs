@@ -6,15 +6,7 @@ namespace ReleaseGate.Api.Persistence;
 public static class DatabaseMigrationBootstrapper
 {
     public const string InitialMigrationId = "20260827090000_InitialSchema";
-
-    private static readonly string[] LegacyTables =
-    [
-        "projects",
-        "environments",
-        "feature_flags",
-        "feature_flag_environments",
-        "flag_changes"
-    ];
+    private const int LegacyTableCount = 5;
 
     public static async Task PrepareLegacyDatabaseAsync(
         ReleaseGateDbContext db,
@@ -41,7 +33,7 @@ public static class DatabaseMigrationBootstrapper
                 return;
             }
 
-            if (legacyTableCount != LegacyTables.Length)
+            if (legacyTableCount != LegacyTableCount)
             {
                 throw new InvalidOperationException(
                     "ReleaseGate found a partial legacy database schema without EF migration history. " +
@@ -81,13 +73,14 @@ public static class DatabaseMigrationBootstrapper
             SELECT COUNT(*)
             FROM information_schema.tables
             WHERE table_schema = 'public'
-              AND table_name = ANY (@table_names);
+              AND table_name IN (
+                  'projects',
+                  'environments',
+                  'feature_flags',
+                  'feature_flag_environments',
+                  'flag_changes'
+              );
             """;
-
-        var parameter = command.CreateParameter();
-        parameter.ParameterName = "table_names";
-        parameter.Value = LegacyTables;
-        command.Parameters.Add(parameter);
 
         var result = await command.ExecuteScalarAsync(cancellationToken);
         return Convert.ToInt32(result);
