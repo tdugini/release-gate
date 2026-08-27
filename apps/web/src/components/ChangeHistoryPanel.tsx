@@ -7,8 +7,13 @@ import { api } from '../lib/api';
 
 const PAGE_SIZE = 10;
 
-function formatFlagState(enabled: boolean, rolloutPercentage: number) {
-  return enabled ? `Enabled · ${rolloutPercentage}%` : 'Disabled';
+function formatTransitionState(
+  enabled: boolean,
+  rolloutPercentage: number,
+  includeEnabledState: boolean,
+) {
+  if (!includeEnabledState) return `${rolloutPercentage}%`;
+  return enabled ? `On · ${rolloutPercentage}%` : 'Off';
 }
 
 type ChangeHistoryPanelProps = {
@@ -105,7 +110,7 @@ export function ChangeHistoryPanel({
                   <th scope="col">Status</th>
                   <th scope="col">Requested</th>
                   <th scope="col">Reviewed</th>
-                  <th scope="col" className="change-history__actions-heading">Actions</th>
+                  <th scope="col" className="change-history__actions-heading">Review</th>
                 </tr>
               </thead>
               <tbody>
@@ -114,6 +119,8 @@ export function ChangeHistoryPanel({
                   const requestedByCurrentUser =
                     change.requestedBy.toLowerCase() === identity.subject.toLowerCase();
                   const canReviewChange = canReview && !requestedByCurrentUser;
+                  const enabledStateChanged =
+                    change.previousEnabled !== change.requestedEnabled;
 
                   return (
                     <tr className="change-history__row" key={change.id}>
@@ -123,11 +130,15 @@ export function ChangeHistoryPanel({
                         </strong>
                       </td>
                       <td>
-                        <div className="change-history__transition">
+                        <div
+                          className="change-history__transition"
+                          aria-label={`Change from ${change.previousEnabled ? `enabled at ${change.previousRolloutPercentage}%` : 'disabled'} to ${change.requestedEnabled ? `enabled at ${change.requestedRolloutPercentage}%` : 'disabled'}`}
+                        >
                           <span>
-                            {formatFlagState(
+                            {formatTransitionState(
                               change.previousEnabled,
                               change.previousRolloutPercentage,
+                              enabledStateChanged,
                             )}
                           </span>
                           <DirectionalIcon
@@ -135,9 +146,10 @@ export function ChangeHistoryPanel({
                             className="change-history__transition-arrow"
                           />
                           <strong>
-                            {formatFlagState(
+                            {formatTransitionState(
                               change.requestedEnabled,
                               change.requestedRolloutPercentage,
+                              enabledStateChanged,
                             )}
                           </strong>
                         </div>
@@ -190,11 +202,11 @@ export function ChangeHistoryPanel({
                         )}
 
                         {change.status === 'pending' && !canReviewChange && (
-                          <div className="change-history__permission-note">
+                          <span className="change-history__permission-note">
                             {requestedByCurrentUser
-                              ? 'Another reviewer must review this production change.'
-                              : 'Reviewer role required to approve or reject this production change.'}
-                          </div>
+                              ? 'Awaiting reviewer'
+                              : 'Reviewer required'}
+                          </span>
                         )}
 
                         {change.status !== 'pending' && (
