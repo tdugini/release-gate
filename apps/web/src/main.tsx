@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import './styles.css';
 import './management.css';
+import './pending-review.css';
 import './auth.css';
 
 createRoot(document.getElementById('root')!).render(
