@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Dialog } from '../components/Dialog';
+import { DirectionalIcon } from '../components/DirectionalIcon';
 import { useAuth } from '../components/AuthProvider';
 import { useToast } from '../components/ToastProvider';
 import { useAsync } from '../hooks/useAsync';
@@ -141,7 +142,9 @@ export function ProjectsPage() {
             <div className="project-row__meta">
               <span>{project.flagCount} flags</span>
               <span>{project.environmentCount} envs</span>
-              <span className="project-row__arrow" aria-hidden="true" />
+              <span className="project-row__arrow" aria-hidden="true">
+                <DirectionalIcon direction="right" />
+              </span>
             </div>
           </Link>
         ))}
