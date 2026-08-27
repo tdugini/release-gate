@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { ChangeHistoryPanel } from '../components/ChangeHistoryPanel';
 import { DirectionalIcon } from '../components/DirectionalIcon';
 import { useAuth } from '../components/AuthProvider';
 import { StatusDot } from '../components/StatusDot';
@@ -12,27 +13,26 @@ type EnvironmentDraft = {
   rolloutPercentage: number;
 };
 
-function formatFlagState(enabled: boolean, rolloutPercentage: number) {
-  return enabled ? `Enabled · ${rolloutPercentage}%` : 'Disabled';
-}
-
 export function FlagPage() {
   const { projectKey = '', flagKey = '' } = useParams();
-  const { identity, hasRole } = useAuth();
+  const { hasRole } = useAuth();
   const { showToast } = useToast();
   const canOperate = hasRole('operator');
-  const canReview = hasRole('reviewer');
   const flagRequest = useAsync(
     () => api.flags.get(projectKey, flagKey),
     [projectKey, flagKey],
   );
-  const changesRequest = useAsync(
-    () => api.flags.changes(projectKey, flagKey),
+  const productionHistoryRequest = useAsync(
+    () => api.flags.changeHistory(projectKey, flagKey, {
+      page: 1,
+      pageSize: 1,
+      environment: 'production',
+    }),
     [projectKey, flagKey],
   );
   const [drafts, setDrafts] = useState<Record<string, EnvironmentDraft>>({});
   const [savingEnvironment, setSavingEnvironment] = useState<string | null>(null);
-  const [reviewingChangeId, setReviewingChangeId] = useState<string | null>(null);
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
 
   useEffect(() => {
     if (!flagRequest.data) return;
@@ -50,8 +50,8 @@ export function FlagPage() {
     );
   }, [flagRequest.data]);
 
-  const pendingProductionChange = changesRequest.data?.find(
-    (change) => change.environment === 'production' && change.status === 'pending',
+  const pendingProductionChange = productionHistoryRequest.data?.items.find(
+    (change) => change.status === 'pending',
   );
 
   const updateDraft = (
@@ -67,6 +67,10 @@ export function FlagPage() {
     }));
   };
 
+  const reloadFlagState = async () => {
+    await Promise.all([flagRequest.reload(), productionHistoryRequest.reload()]);
+  };
+
   const saveEnvironment = async (environment: string) => {
     const draft = drafts[environment];
     if (!draft) return;
@@ -75,7 +79,8 @@ export function FlagPage() {
 
     try {
       await api.flags.updateEnvironment(projectKey, flagKey, environment, draft);
-      await Promise.all([flagRequest.reload(), changesRequest.reload()]);
+      await reloadFlagState();
+      setHistoryRefreshKey((current) => current + 1);
       showToast(
         environment === 'production'
           ? 'Production change submitted for approval.'
@@ -86,30 +91,6 @@ export function FlagPage() {
       showToast(message, 'error');
     } finally {
       setSavingEnvironment(null);
-    }
-  };
-
-  const reviewChange = async (changeId: string, decision: 'approve' | 'reject') => {
-    setReviewingChangeId(changeId);
-
-    try {
-      if (decision === 'approve') {
-        await api.flags.approveChange(projectKey, flagKey, changeId);
-      } else {
-        await api.flags.rejectChange(projectKey, flagKey, changeId);
-      }
-
-      await Promise.all([flagRequest.reload(), changesRequest.reload()]);
-      showToast(
-        decision === 'approve'
-          ? 'Production change approved and applied.'
-          : 'Production change rejected.',
-      );
-    } catch (caught) {
-      const message = caught instanceof Error ? caught.message : 'Could not review change.';
-      showToast(message, 'error');
-    } finally {
-      setReviewingChangeId(null);
     }
   };
 
@@ -285,117 +266,12 @@ export function FlagPage() {
             })}
           </section>
 
-          <section className="change-history surface" aria-labelledby="change-history-title">
-            <div className="change-history__header">
-              <div>
-                <p className="eyebrow">Audit log</p>
-                <h2 id="change-history-title">Change history</h2>
-              </div>
-              <span>{changesRequest.data?.length ?? 0} changes</span>
-            </div>
-
-            {changesRequest.loading && (
-              <div className="change-history__state">Loading change history…</div>
-            )}
-
-            {changesRequest.error && (
-              <div className="change-history__state change-history__state--error">
-                Change history could not be loaded.
-              </div>
-            )}
-
-            {changesRequest.data?.length === 0 && (
-              <div className="change-history__state">
-                No configuration changes have been recorded yet.
-              </div>
-            )}
-
-            {changesRequest.data && changesRequest.data.length > 0 && (
-              <div className="change-history__list">
-                {changesRequest.data.map((change) => {
-                  const isReviewing = reviewingChangeId === change.id;
-                  const requestedByCurrentUser =
-                    change.requestedBy.toLowerCase() === identity.subject.toLowerCase();
-                  const canReviewChange = canReview && !requestedByCurrentUser;
-
-                  return (
-                    <article className="change-history__item" key={change.id}>
-                      <div className="change-history__meta">
-                        <strong>{change.environment}</strong>
-                        <span className={`change-status change-status--${change.status}`}>
-                          {change.status}
-                        </span>
-                      </div>
-
-                      <div className="change-history__transition">
-                        <span>
-                          {formatFlagState(
-                            change.previousEnabled,
-                            change.previousRolloutPercentage,
-                          )}
-                        </span>
-                        <DirectionalIcon
-                          direction="arrow-right"
-                          className="change-history__transition-arrow"
-                        />
-                        <strong>
-                          {formatFlagState(
-                            change.requestedEnabled,
-                            change.requestedRolloutPercentage,
-                          )}
-                        </strong>
-                      </div>
-
-                      <footer>
-                        <span>Requested by {change.requestedBy}</span>
-                        <time dateTime={change.requestedAt}>
-                          {new Date(change.requestedAt).toLocaleString()}
-                        </time>
-                      </footer>
-
-                      {change.reviewedBy && change.reviewedAt && (
-                        <div className="change-history__reviewed">
-                          <span>Reviewed by {change.reviewedBy}</span>
-                          <time dateTime={change.reviewedAt}>
-                            {new Date(change.reviewedAt).toLocaleString()}
-                          </time>
-                        </div>
-                      )}
-
-                      {change.status === 'pending' && canReviewChange && (
-                        <div className="change-history__actions">
-                          <button
-                            className="button button--danger"
-                            type="button"
-                            disabled={isReviewing}
-                            onClick={() => void reviewChange(change.id, 'reject')}
-                          >
-                            Reject
-                          </button>
-                          <button
-                            className="button button--primary"
-                            type="button"
-                            disabled={isReviewing}
-                            onClick={() => void reviewChange(change.id, 'approve')}
-                          >
-                            {isReviewing ? 'Reviewing…' : 'Approve'}
-                          </button>
-                        </div>
-                      )}
-
-                      {change.status === 'pending' && !canReviewChange && (
-                        <div className="change-history__permission-note">
-                          {requestedByCurrentUser
-                            ? 'Another reviewer must review this production change.'
-                            : 'Reviewer role required to approve or reject this production change.'}
-                        </div>
-                      )}
-                    </article>
-                  );
-                })}
-              </div>
-            )}
-          </section>
+          <ChangeHistoryPanel
+            projectKey={projectKey}
+            flagKey={flagKey}
+            refreshKey={historyRefreshKey}
+            onReviewed={reloadFlagState}
+          />
         </>
       )}
     </div>
