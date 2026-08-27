@@ -49,7 +49,11 @@ public sealed class RuntimeSnapshotTests(ReleaseGateApiFactory factory)
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.True(response.Headers.TryGetValues("ETag", out var etagValues));
         Assert.StartsWith("W/\"", Assert.Single(etagValues));
-        Assert.Equal("private, no-cache", response.Headers.CacheControl?.ToString());
+
+        var cacheControl = response.Headers.CacheControl;
+        Assert.NotNull(cacheControl);
+        Assert.True(cacheControl.Private);
+        Assert.True(cacheControl.NoCache);
 
         var snapshot = await response.Content.ReadFromJsonAsync<RuntimeSnapshotResponse>(cancellationToken);
 
