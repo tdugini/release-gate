@@ -11,12 +11,8 @@ internal static class TestClients
     public const string RuntimeApiKey = "releasegate-test-runtime";
     public const string ScopedRuntimeApiKey = "releasegate-test-runtime-scoped";
 
-    public static HttpClient CreateOperator(ReleaseGateApiFactory factory)
-    {
-        var client = CreateControlPlane(factory, OperatorToken);
-        client.DefaultRequestHeaders.Add(RuntimeApiKeyValidator.HeaderName, RuntimeApiKey);
-        return client;
-    }
+    public static HttpClient CreateOperator(ReleaseGateApiFactory factory) =>
+        CreateControlPlane(factory, OperatorToken);
 
     public static HttpClient CreateReviewer(ReleaseGateApiFactory factory) =>
         CreateControlPlane(factory, ReviewerToken);
