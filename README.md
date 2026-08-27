@@ -6,21 +6,22 @@ It is designed around a real internal-platform problem: teams need a safe way to
 
 **ASP.NET Core · React · TypeScript · PostgreSQL · Entity Framework Core · Docker**
 
-## Current milestone — v0.8
+## Current milestone — v0.9
 
-**Runtime API key security.**
+**SDK releases & production-like deployment.**
 
-ReleaseGate now protects application-facing runtime snapshots with dedicated machine-to-machine API keys instead of exposing runtime configuration anonymously or reusing human control-plane credentials.
+ReleaseGate can now be built and exercised as a complete self-hosted stack instead of only as separate local development processes. The JavaScript SDK is also prepared for explicit, versioned package releases.
 
 ReleaseGate now provides:
 
-- runtime API keys configured independently from operator/reviewer bearer tokens;
-- constant-time API key comparison;
-- per-project runtime scopes with optional wildcard access;
-- `401 Unauthorized` for missing or invalid runtime credentials;
-- `403 Forbidden` for valid credentials outside their configured project scope;
-- a JavaScript/TypeScript SDK that sends runtime credentials automatically;
-- integration tests that keep control-plane and runtime credentials as separate security boundaries.
+- multi-stage production container images for the ASP.NET Core API and React control plane;
+- nginx serving the SPA and proxying same-origin `/api/*` traffic to the API container;
+- a production-like Docker Compose stack with PostgreSQL, API and web services;
+- deployment credentials supplied through environment variables rather than committed production secrets;
+- automatic EF Core migration application for relational deployed environments;
+- a full deployment smoke test in CI that exercises migrations, nginx, control-plane auth and runtime auth together;
+- npm package-content validation for `@releasegate/sdk-js`;
+- an SDK release workflow driven by `sdk-js-v*` tags, with tag/package version matching and npm provenance.
 
 ### Milestone progress
 
@@ -31,8 +32,8 @@ ReleaseGate now provides:
 - **v0.5 — SDK & updates:** runtime snapshot delivery, JavaScript/TypeScript SDK, automatic refresh and conditional revalidation.
 - **v0.6 — Authentication & RBAC:** authenticated control plane, operator/reviewer roles, authenticated audit actors and self-review protection.
 - **v0.7 — EF Core migrations:** versioned schema evolution, legacy database baselining and migration verification in CI.
-- **v0.8 — Runtime security:** machine-to-machine API keys, project scopes and SDK credential propagation. **Current.**
-- **v0.9 — SDK & deployment:** SDK publishing/versioning and production-like deployment.
+- **v0.8 — Runtime security:** machine-to-machine API keys, project scopes and SDK credential propagation.
+- **v0.9 — SDK & deployment:** versioned SDK release pipeline and production-like container deployment. **Current.**
 - **v1.0 — Product polish:** operational documentation, portfolio-ready demo and final visual overhaul.
 
 ## Product model
@@ -79,8 +80,8 @@ Runtime keys may be scoped to one or more project keys, or to `*` for wildcard a
 
 ```text
 apps/
-├── api/ReleaseGate.Api/      ASP.NET Core API
-└── web/                      React + TypeScript control plane
+├── api/ReleaseGate.Api/      ASP.NET Core API + API Dockerfile
+└── web/                      React control plane + nginx container
 
 packages/
 └── sdk-js/                   JavaScript/TypeScript runtime SDK
@@ -89,9 +90,12 @@ tests/
 └── ReleaseGate.Api.IntegrationTests/
 
 .github/workflows/
-└── ci.yml
+├── ci.yml                    build, tests and deployed-stack smoke test
+└── sdk-release.yml           versioned npm release workflow
 
-docker-compose.yml             local PostgreSQL
+docker-compose.yml            local PostgreSQL
+docker-compose.prod.yml       production-like self-hosted stack
+DEPLOYMENT.md                  deployment and release operations
 ```
 
 ## Local development
@@ -139,6 +143,7 @@ cd packages/sdk-js
 npm ci
 npm run typecheck
 npm test
+npm run pack:check
 ```
 
 ### 5. Work with EF Core migrations
@@ -162,6 +167,26 @@ dotnet ef database update --project apps/api/ReleaseGate.Api
 ```
 
 New persisted model changes should be accompanied by a committed migration and an updated model snapshot.
+
+## Production-like deployment
+
+Copy the deployment environment template and replace all placeholder secrets:
+
+```bash
+cp .env.production.example .env.production
+```
+
+Then build and start PostgreSQL, API and web/nginx together:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+```
+
+The control plane is exposed at `http://localhost:8080` by default. Only nginx is published to the host; API and PostgreSQL traffic stay on the internal Compose network.
+
+In production builds, the React application uses same-origin API calls and nginx proxies `/api/*` to the API container. The API applies committed EF Core migrations at startup. Legacy pre-v0.7 baselining remains development-only.
+
+See `DEPLOYMENT.md` for configuration, lifecycle commands, CI smoke-test behavior and SDK release instructions.
 
 ## API examples
 
@@ -192,20 +217,6 @@ Content-Type: application/json
 }
 ```
 
-Create a flag:
-
-```http
-POST /api/projects/silva-commerce/flags
-Authorization: Bearer releasegate-local-operator
-Content-Type: application/json
-
-{
-  "name": "New checkout",
-  "key": "new-checkout",
-  "description": "Progressive rollout of the redesigned checkout"
-}
-```
-
 Submit a production rollout change for review:
 
 ```http
@@ -221,13 +232,6 @@ Content-Type: application/json
 
 The audit actor is derived from the authenticated identity. Callers cannot override it with a request header.
 
-Inspect flag change history:
-
-```http
-GET /api/projects/silva-commerce/flags/new-checkout/changes?environment=production
-Authorization: Bearer releasegate-local-reviewer
-```
-
 Approve a pending production change as a different reviewer identity:
 
 ```http
@@ -235,27 +239,7 @@ POST /api/projects/silva-commerce/flags/new-checkout/changes/{changeId}/approve
 Authorization: Bearer releasegate-local-reviewer
 ```
 
-Or reject it without changing the active production configuration:
-
-```http
-POST /api/projects/silva-commerce/flags/new-checkout/changes/{changeId}/reject
-Authorization: Bearer releasegate-local-reviewer
-```
-
-Evaluate one flag for one subject through the authenticated control-plane inspection endpoint:
-
-```http
-POST /api/projects/silva-commerce/flags/new-checkout/evaluate
-Authorization: Bearer releasegate-local-operator
-Content-Type: application/json
-
-{
-  "environment": "production",
-  "subjectKey": "user-92841"
-}
-```
-
-Fetch the application-facing runtime snapshot for that subject with a runtime credential:
+Fetch the application-facing runtime snapshot for a subject with a runtime credential:
 
 ```http
 GET /api/runtime/projects/silva-commerce/environments/production/snapshot?subjectKey=user-92841
@@ -294,7 +278,9 @@ if (client.isEnabled('new-checkout')) {
 }
 ```
 
-After initialization, flag checks are local in-memory lookups. Refreshes revalidate the current snapshot through ETags, and automatic polling never overlaps requests. Runtime credentials are attached only to snapshot requests and remain independent from control-plane authentication.
+After initialization, flag checks are local in-memory lookups. Refreshes revalidate the current snapshot through ETags, and automatic polling never overlaps requests.
+
+The SDK package has its own version lifecycle. A tag such as `sdk-js-v0.1.0` must match the version in `packages/sdk-js/package.json`; the release workflow validates, tests and packs the SDK before publishing to npm. Actual npm publication requires an `NPM_TOKEN` and publish rights for the package scope.
 
 ## Engineering direction
 
@@ -306,15 +292,15 @@ The project is built around several constraints:
 - role-based authorization for management and production review operations;
 - project-scoped runtime API credentials;
 - versioned and repeatable database schema evolution;
-- environment-safe configuration;
+- production-like container packaging and same-origin reverse proxying;
+- deployable configuration kept outside committed production secrets;
 - deterministic percentage rollout evaluation;
 - efficient snapshot-based SDK consumption;
 - resilient runtime configuration refresh;
-- accessibility and responsive behavior in the control plane;
-- deterministic builds and integration tests;
-- auditable production configuration changes with authenticated actors;
-- separation of duties for sensitive production changes.
+- versioned and validated SDK package releases;
+- deterministic builds, integration tests and deployed-stack smoke tests;
+- auditable production configuration changes with separation of duties.
 
-Real identity-provider integration, SDK publishing/versioning and production deployment remain future hardening steps.
+Real identity-provider integration, external secret-manager integration, credential rotation and horizontally scaled deployment remain future hardening opportunities rather than prerequisites for the portfolio v1.0.
 
-See `ARCHITECTURE.md` for the current decisions and planned boundaries.
+See `ARCHITECTURE.md` for the current decisions and boundaries, and `DEPLOYMENT.md` for deployment operations.

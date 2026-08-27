@@ -3,6 +3,7 @@ import { useAuth } from './AuthProvider';
 
 export function AppShell() {
   const { identity, signOut } = useAuth();
+  const workspaceLabel = import.meta.env.PROD ? 'Self-hosted deployment' : 'Local workspace';
 
   return (
     <div className="app-shell">
@@ -36,9 +37,9 @@ export function AppShell() {
 
           <span className="environment-chip">
             <span className="environment-chip__dot" />
-            Local workspace
+            {workspaceLabel}
           </span>
-          <small>v0.6 · authenticated control plane</small>
+          <small>v0.9 · SDK & deployment</small>
         </div>
       </aside>
 

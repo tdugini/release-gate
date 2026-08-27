@@ -41,17 +41,30 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+await using (var scope = app.Services.CreateAsyncScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<ReleaseGateDbContext>();
+
+    if (db.Database.IsRelational())
+    {
+        if (app.Environment.IsDevelopment())
+        {
+            await DatabaseMigrationBootstrapper.PrepareLegacyDatabaseAsync(db);
+        }
+
+        await db.Database.MigrateAsync();
+    }
+
+    if (app.Environment.IsDevelopment())
+    {
+        await DevelopmentDataSeeder.SeedAsync(db);
+    }
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
     app.UseCors("web");
-
-    await using var scope = app.Services.CreateAsyncScope();
-    var db = scope.ServiceProvider.GetRequiredService<ReleaseGateDbContext>();
-
-    await DatabaseMigrationBootstrapper.PrepareLegacyDatabaseAsync(db);
-    await db.Database.MigrateAsync();
-    await DevelopmentDataSeeder.SeedAsync(db);
 }
 
 app.UseAuthentication();
