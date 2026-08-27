@@ -1,0 +1,106 @@
+.access-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}
+
+.access-card {
+  width: min(440px, 100%);
+  padding: 32px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+}
+
+.access-card > .brand__mark {
+  margin-bottom: 28px;
+  background: #1c1f1b;
+}
+
+.access-card h1 {
+  margin: 6px 0 12px;
+  font-size: clamp(2rem, 7vw, 3rem);
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.access-card > p:not(.eyebrow) {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.access-form {
+  display: grid;
+  gap: 18px;
+  margin-top: 28px;
+}
+
+.access-form .button {
+  width: 100%;
+}
+
+.control-plane-user {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 12px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid #30342f;
+}
+
+.control-plane-user > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.control-plane-user strong {
+  color: #f4f5f1;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.control-plane-user small {
+  color: #888f87;
+  overflow-wrap: anywhere;
+}
+
+.control-plane-user__roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.control-plane-user__roles span {
+  padding: 2px 6px;
+  border: 1px solid #414741;
+  border-radius: 4px;
+  color: #b9d7ca;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.61rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sidebar__signout {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #aeb3ab;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.sidebar__signout:hover {
+  color: #ffffff;
+}
+
+.change-history__permission-note {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
