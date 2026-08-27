@@ -30,6 +30,7 @@ export class ReleaseGateClient {
   private subjectKey: string | null = null;
   private snapshot: RuntimeSnapshot | null = null;
   private flags = new Map<string, boolean>();
+  private etag: string | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private pollingActive = false;
 
@@ -61,6 +62,7 @@ export class ReleaseGateClient {
   async initialize(subjectKey: string): Promise<RuntimeSnapshot> {
     this.stop();
     this.subjectKey = normalizeRequired(subjectKey, 'subjectKey');
+    this.etag = null;
 
     const snapshot = await this.refresh();
 
@@ -82,20 +84,35 @@ export class ReleaseGateClient {
     );
     url.searchParams.set('subjectKey', this.subjectKey);
 
-    const response = await this.fetchImpl(url, {
-      headers: {
-        Accept: 'application/json',
-      },
+    const headers = new Headers({
+      Accept: 'application/json',
     });
+
+    if (this.etag) {
+      headers.set('If-None-Match', this.etag);
+    }
+
+    const response = await this.fetchImpl(url, { headers });
+
+    if (response.status === 304) {
+      if (!this.snapshot) {
+        throw new Error('ReleaseGate returned 304 before the client had a cached snapshot.');
+      }
+
+      this.etag = response.headers.get('ETag') ?? this.etag;
+      return this.snapshot;
+    }
 
     if (!response.ok) {
       throw new Error(`ReleaseGate snapshot request failed with status ${response.status}.`);
     }
 
     const snapshot = validateSnapshot(await response.json());
+    const etag = response.headers.get('ETag');
 
     this.snapshot = snapshot;
     this.flags = new Map(snapshot.flags.map((flag) => [flag.key, flag.enabled]));
+    this.etag = etag;
 
     return snapshot;
   }
