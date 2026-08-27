@@ -80,6 +80,7 @@ app.MapGet("/health", () => Results.Ok(new
 app.MapAuthEndpoints();
 app.MapProjectEndpoints();
 app.MapFeatureFlagEndpoints();
+app.MapFeatureFlagManagementEndpoints();
 app.MapFlagChangeHistoryEndpoints();
 app.MapRuntimeEndpoints();
 
