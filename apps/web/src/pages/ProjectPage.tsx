@@ -32,6 +32,10 @@ export function ProjectPage() {
   const [keyWasEdited, setKeyWasEdited] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<Error | null>(null);
+  const [updatingFlagKey, setUpdatingFlagKey] = useState<string | null>(null);
+  const [submittedProductionFlags, setSubmittedProductionFlags] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const projectRequest = useAsync(() => api.projects.get(projectKey), [projectKey]);
   const flagsRequest = useAsync(
@@ -59,6 +63,11 @@ export function ProjectPage() {
     if (!submitting) setDialogOpen(false);
   };
 
+  const selectEnvironment = (nextEnvironment: string) => {
+    setEnvironment(nextEnvironment);
+    setSubmittedProductionFlags(new Set());
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitting(true);
@@ -80,6 +89,39 @@ export function ProjectPage() {
       showToast(nextError.message, 'error');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const quickToggleFlag = async (
+    flagKey: string,
+    enabled: boolean,
+    rolloutPercentage: number,
+  ) => {
+    const nextEnabled = !enabled;
+    setUpdatingFlagKey(flagKey);
+
+    try {
+      await api.flags.updateEnvironment(projectKey, flagKey, environment, {
+        enabled: nextEnabled,
+        rolloutPercentage,
+      });
+
+      if (environment === 'production') {
+        setSubmittedProductionFlags((current) => new Set(current).add(flagKey));
+        showToast(
+          `${nextEnabled ? 'Enable' : 'Disable'} request for ${flagKey} submitted for approval.`,
+        );
+      } else {
+        await flagsRequest.reload();
+        showToast(
+          `${flagKey} ${nextEnabled ? 'enabled' : 'disabled'} in ${environment}.`,
+        );
+      }
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Could not update flag.';
+      showToast(message, 'error');
+    } finally {
+      setUpdatingFlagKey(null);
     }
   };
 
@@ -121,7 +163,7 @@ export function ProjectPage() {
             <button
               className={item.key === environment ? 'is-active' : ''}
               key={item.id}
-              onClick={() => setEnvironment(item.key)}
+              onClick={() => selectEnvironment(item.key)}
             >
               {item.name}
             </button>
@@ -147,6 +189,7 @@ export function ProjectPage() {
           <span>Status</span>
           <span>Rollout</span>
           <span>Key</span>
+          <span>Action</span>
           <span />
         </div>
 
@@ -162,28 +205,54 @@ export function ProjectPage() {
           </div>
         )}
 
-        {flagsRequest.data?.map((flag) => (
-          <Link
-            className="flag-row"
-            key={flag.id}
-            to={`/projects/${project.key}/flags/${flag.key}`}
-          >
-            <div>
-              <strong>{flag.name}</strong>
-              <small>{flag.description ?? 'No description'}</small>
-            </div>
-            <StatusDot enabled={flag.enabled} />
-            <span className="rollout">
-              <span
-                className="rollout__fill"
-                style={{ width: `${flag.enabled ? flag.rolloutPercentage : 0}%` }}
+        {flagsRequest.data?.map((flag) => {
+          const isUpdating = updatingFlagKey === flag.key;
+          const productionRequestSubmitted = submittedProductionFlags.has(flag.key);
+
+          return (
+            <div className="flag-row" key={flag.id}>
+              <Link
+                className="flag-row__open"
+                to={`/projects/${project.key}/flags/${flag.key}`}
+                aria-label={`Open ${flag.name}`}
               />
-              <strong>{flag.enabled ? flag.rolloutPercentage : 0}%</strong>
-            </span>
-            <code>{flag.key}</code>
-            <span className="row-arrow" aria-hidden="true">→</span>
-          </Link>
-        ))}
+              <div className="flag-row__identity">
+                <strong>{flag.name}</strong>
+                <small>{flag.description ?? 'No description'}</small>
+              </div>
+              <StatusDot enabled={flag.enabled} />
+              <span className="rollout">
+                <span
+                  className="rollout__fill"
+                  style={{ width: `${flag.enabled ? flag.rolloutPercentage : 0}%` }}
+                />
+                <strong>{flag.enabled ? flag.rolloutPercentage : 0}%</strong>
+              </span>
+              <code>{flag.key}</code>
+              {canOperate ? (
+                <button
+                  className="flag-quick-action"
+                  type="button"
+                  disabled={isUpdating || productionRequestSubmitted}
+                  onClick={() =>
+                    void quickToggleFlag(flag.key, flag.enabled, flag.rolloutPercentage)
+                  }
+                >
+                  {productionRequestSubmitted
+                    ? 'Pending'
+                    : isUpdating
+                      ? 'Updating…'
+                      : flag.enabled
+                        ? 'Disable'
+                        : 'Enable'}
+                </button>
+              ) : (
+                <span />
+              )}
+              <span className="row-arrow" aria-hidden="true" />
+            </div>
+          );
+        })}
       </div>
 
       <Dialog
