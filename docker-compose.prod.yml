@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-releasegate}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
     volumes:
-      - releasegate-postgres:/var/lib/postgresql/data
+      - releasegate-prod-postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-releasegate} -d ${POSTGRES_DB:-releasegate}"]
       interval: 5s
@@ -50,4 +50,4 @@ services:
       - "${WEB_PORT:-8080}:80"
 
 volumes:
-  releasegate-postgres:
+  releasegate-prod-postgres:
