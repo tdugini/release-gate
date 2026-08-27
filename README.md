@@ -23,7 +23,7 @@ ReleaseGate now provides:
 - CI verification that the EF model snapshot is current;
 - CI application of migrations against a real empty PostgreSQL database.
 
-The legacy upgrade path was also verified manually by creating a database with the v0.6 `EnsureCreated` bootstrap, switching to v0.7 without deleting the PostgreSQL volume, and confirming that the existing projects and flags remained available while the initial migration was recorded in `__EFMigrationsHistory`.
+The legacy upgrade path was manually verified by creating a database with the v0.6 `EnsureCreated` bootstrap, switching to v0.7 without deleting the PostgreSQL volume, and confirming that the existing projects and flags remained available while `20260827090000_InitialSchema` was recorded in `__EFMigrationsHistory` with EF Core product version `10.0.4`.
 
 ### Milestone progress
 
