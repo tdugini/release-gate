@@ -8,7 +8,8 @@ namespace ReleaseGate.Api.IntegrationTests;
 public sealed class FlagChangeAuditTests(ReleaseGateApiFactory factory)
     : IClassFixture<ReleaseGateApiFactory>
 {
-    private readonly HttpClient _client = factory.CreateClient();
+    private readonly HttpClient _operatorClient = TestClients.CreateOperator(factory);
+    private readonly HttpClient _reviewerClient = TestClients.CreateReviewer(factory);
 
     [Fact]
     public async Task Updating_a_non_production_environment_creates_an_applied_audit_entry()
@@ -19,14 +20,13 @@ public sealed class FlagChangeAuditTests(ReleaseGateApiFactory factory)
         using var updateRequest = CreateUpdateRequest(
             "/api/projects/audit-project/flags/new-checkout/environments/staging",
             true,
-            40,
-            "integration-test");
+            40);
 
-        var update = await _client.SendAsync(updateRequest, cancellationToken);
+        var update = await _operatorClient.SendAsync(updateRequest, cancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, update.StatusCode);
 
-        var changes = await _client.GetFromJsonAsync<List<FlagChangeResponse>>(
+        var changes = await _operatorClient.GetFromJsonAsync<List<FlagChangeResponse>>(
             "/api/projects/audit-project/flags/new-checkout/changes?environment=staging",
             cancellationToken);
 
@@ -38,7 +38,7 @@ public sealed class FlagChangeAuditTests(ReleaseGateApiFactory factory)
         Assert.True(change.RequestedEnabled);
         Assert.Equal(40, change.RequestedRolloutPercentage);
         Assert.Equal("applied", change.Status);
-        Assert.Equal("integration-test", change.RequestedBy);
+        Assert.Equal("operator@test", change.RequestedBy);
         Assert.Null(change.ReviewedBy);
         Assert.Null(change.ReviewedAt);
     }
@@ -52,35 +52,32 @@ public sealed class FlagChangeAuditTests(ReleaseGateApiFactory factory)
         using var updateRequest = CreateUpdateRequest(
             "/api/projects/approval-project/flags/new-checkout/environments/production",
             true,
-            25,
-            "release-author");
+            25);
 
-        var update = await _client.SendAsync(updateRequest, cancellationToken);
+        var update = await _operatorClient.SendAsync(updateRequest, cancellationToken);
 
         Assert.Equal(HttpStatusCode.Accepted, update.StatusCode);
 
         var pendingChange = await update.Content.ReadFromJsonAsync<FlagChangeResponse>(cancellationToken);
         Assert.NotNull(pendingChange);
         Assert.Equal("pending", pendingChange.Status);
-        Assert.Equal("release-author", pendingChange.RequestedBy);
+        Assert.Equal("operator@test", pendingChange.RequestedBy);
 
         var beforeApproval = await GetProductionFlag("approval-project", cancellationToken);
         Assert.False(beforeApproval.Enabled);
         Assert.Equal(0, beforeApproval.RolloutPercentage);
 
-        using var approveRequest = new HttpRequestMessage(
-            HttpMethod.Post,
-            $"/api/projects/approval-project/flags/new-checkout/changes/{pendingChange.Id}/approve");
-        approveRequest.Headers.Add("X-ReleaseGate-Actor", "release-reviewer");
-
-        var approve = await _client.SendAsync(approveRequest, cancellationToken);
+        var approve = await _reviewerClient.PostAsync(
+            $"/api/projects/approval-project/flags/new-checkout/changes/{pendingChange.Id}/approve",
+            null,
+            cancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, approve.StatusCode);
 
         var approvedChange = await approve.Content.ReadFromJsonAsync<FlagChangeResponse>(cancellationToken);
         Assert.NotNull(approvedChange);
         Assert.Equal("approved", approvedChange.Status);
-        Assert.Equal("release-reviewer", approvedChange.ReviewedBy);
+        Assert.Equal("reviewer@test", approvedChange.ReviewedBy);
         Assert.NotNull(approvedChange.ReviewedAt);
 
         var afterApproval = await GetProductionFlag("approval-project", cancellationToken);
@@ -97,28 +94,25 @@ public sealed class FlagChangeAuditTests(ReleaseGateApiFactory factory)
         using var updateRequest = CreateUpdateRequest(
             "/api/projects/rejection-project/flags/new-checkout/environments/production",
             true,
-            60,
-            "release-author");
+            60);
 
-        var update = await _client.SendAsync(updateRequest, cancellationToken);
+        var update = await _operatorClient.SendAsync(updateRequest, cancellationToken);
         Assert.Equal(HttpStatusCode.Accepted, update.StatusCode);
 
         var pendingChange = await update.Content.ReadFromJsonAsync<FlagChangeResponse>(cancellationToken);
         Assert.NotNull(pendingChange);
 
-        using var rejectRequest = new HttpRequestMessage(
-            HttpMethod.Post,
-            $"/api/projects/rejection-project/flags/new-checkout/changes/{pendingChange.Id}/reject");
-        rejectRequest.Headers.Add("X-ReleaseGate-Actor", "release-reviewer");
-
-        var reject = await _client.SendAsync(rejectRequest, cancellationToken);
+        var reject = await _reviewerClient.PostAsync(
+            $"/api/projects/rejection-project/flags/new-checkout/changes/{pendingChange.Id}/reject",
+            null,
+            cancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, reject.StatusCode);
 
         var rejectedChange = await reject.Content.ReadFromJsonAsync<FlagChangeResponse>(cancellationToken);
         Assert.NotNull(rejectedChange);
         Assert.Equal("rejected", rejectedChange.Status);
-        Assert.Equal("release-reviewer", rejectedChange.ReviewedBy);
+        Assert.Equal("reviewer@test", rejectedChange.ReviewedBy);
 
         var productionFlag = await GetProductionFlag("rejection-project", cancellationToken);
         Assert.False(productionFlag.Enabled);
@@ -134,23 +128,21 @@ public sealed class FlagChangeAuditTests(ReleaseGateApiFactory factory)
         using var firstRequest = CreateUpdateRequest(
             "/api/projects/pending-conflict-project/flags/new-checkout/environments/production",
             true,
-            30,
-            "release-author");
+            30);
 
-        var firstUpdate = await _client.SendAsync(firstRequest, cancellationToken);
+        var firstUpdate = await _operatorClient.SendAsync(firstRequest, cancellationToken);
         Assert.Equal(HttpStatusCode.Accepted, firstUpdate.StatusCode);
 
         using var secondRequest = CreateUpdateRequest(
             "/api/projects/pending-conflict-project/flags/new-checkout/environments/production",
             true,
-            80,
-            "another-author");
+            80);
 
-        var secondUpdate = await _client.SendAsync(secondRequest, cancellationToken);
+        var secondUpdate = await _operatorClient.SendAsync(secondRequest, cancellationToken);
 
         Assert.Equal(HttpStatusCode.Conflict, secondUpdate.StatusCode);
 
-        var changes = await _client.GetFromJsonAsync<List<FlagChangeResponse>>(
+        var changes = await _operatorClient.GetFromJsonAsync<List<FlagChangeResponse>>(
             "/api/projects/pending-conflict-project/flags/new-checkout/changes?environment=production",
             cancellationToken);
 
@@ -172,29 +164,24 @@ public sealed class FlagChangeAuditTests(ReleaseGateApiFactory factory)
         using var updateRequest = CreateUpdateRequest(
             "/api/projects/review-conflict-project/flags/new-checkout/environments/production",
             true,
-            45,
-            "release-author");
+            45);
 
-        var update = await _client.SendAsync(updateRequest, cancellationToken);
+        var update = await _operatorClient.SendAsync(updateRequest, cancellationToken);
         Assert.Equal(HttpStatusCode.Accepted, update.StatusCode);
 
         var pendingChange = await update.Content.ReadFromJsonAsync<FlagChangeResponse>(cancellationToken);
         Assert.NotNull(pendingChange);
 
-        using var approveRequest = new HttpRequestMessage(
-            HttpMethod.Post,
-            $"/api/projects/review-conflict-project/flags/new-checkout/changes/{pendingChange.Id}/approve");
-        approveRequest.Headers.Add("X-ReleaseGate-Actor", "first-reviewer");
-
-        var approve = await _client.SendAsync(approveRequest, cancellationToken);
+        var approve = await _reviewerClient.PostAsync(
+            $"/api/projects/review-conflict-project/flags/new-checkout/changes/{pendingChange.Id}/approve",
+            null,
+            cancellationToken);
         Assert.Equal(HttpStatusCode.OK, approve.StatusCode);
 
-        using var rejectRequest = new HttpRequestMessage(
-            HttpMethod.Post,
-            $"/api/projects/review-conflict-project/flags/new-checkout/changes/{pendingChange.Id}/reject");
-        rejectRequest.Headers.Add("X-ReleaseGate-Actor", "second-reviewer");
-
-        var reject = await _client.SendAsync(rejectRequest, cancellationToken);
+        var reject = await _reviewerClient.PostAsync(
+            $"/api/projects/review-conflict-project/flags/new-checkout/changes/{pendingChange.Id}/reject",
+            null,
+            cancellationToken);
 
         Assert.Equal(HttpStatusCode.Conflict, reject.StatusCode);
 
@@ -202,26 +189,26 @@ public sealed class FlagChangeAuditTests(ReleaseGateApiFactory factory)
         Assert.True(productionFlag.Enabled);
         Assert.Equal(45, productionFlag.RolloutPercentage);
 
-        var changes = await _client.GetFromJsonAsync<List<FlagChangeResponse>>(
+        var changes = await _operatorClient.GetFromJsonAsync<List<FlagChangeResponse>>(
             "/api/projects/review-conflict-project/flags/new-checkout/changes?environment=production",
             cancellationToken);
 
         var reviewedChange = Assert.Single(changes!);
         Assert.Equal("approved", reviewedChange.Status);
-        Assert.Equal("first-reviewer", reviewedChange.ReviewedBy);
+        Assert.Equal("reviewer@test", reviewedChange.ReviewedBy);
     }
 
     private async Task CreateProjectAndFlag(string projectKey)
     {
         var cancellationToken = TestContext.Current.CancellationToken;
 
-        var createProject = await _client.PostAsJsonAsync(
+        var createProject = await _operatorClient.PostAsJsonAsync(
             "/api/projects",
             new CreateProjectRequest("Audit project", projectKey, null),
             cancellationToken);
         Assert.Equal(HttpStatusCode.Created, createProject.StatusCode);
 
-        var createFlag = await _client.PostAsJsonAsync(
+        var createFlag = await _operatorClient.PostAsJsonAsync(
             $"/api/projects/{projectKey}/flags",
             new CreateFeatureFlagRequest("New checkout", "new-checkout", null),
             cancellationToken);
@@ -231,22 +218,17 @@ public sealed class FlagChangeAuditTests(ReleaseGateApiFactory factory)
     private static HttpRequestMessage CreateUpdateRequest(
         string uri,
         bool enabled,
-        int rolloutPercentage,
-        string actor)
-    {
-        var request = new HttpRequestMessage(HttpMethod.Patch, uri)
+        int rolloutPercentage) =>
+        new(HttpMethod.Patch, uri)
         {
             Content = JsonContent.Create(new UpdateFlagEnvironmentRequest(enabled, rolloutPercentage))
         };
-        request.Headers.Add("X-ReleaseGate-Actor", actor);
-        return request;
-    }
 
     private async Task<FeatureFlagSummaryResponse> GetProductionFlag(
         string projectKey,
         CancellationToken cancellationToken)
     {
-        var flags = await _client.GetFromJsonAsync<List<FeatureFlagSummaryResponse>>(
+        var flags = await _operatorClient.GetFromJsonAsync<List<FeatureFlagSummaryResponse>>(
             $"/api/projects/{projectKey}/flags?environment=production",
             cancellationToken);
 
