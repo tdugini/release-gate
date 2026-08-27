@@ -6,6 +6,7 @@ import './management.css';
 import './pending-review.css';
 import './auth.css';
 import './v1-polish.css';
+import './v1-second-pass.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
