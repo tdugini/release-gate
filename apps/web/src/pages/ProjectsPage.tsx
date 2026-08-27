@@ -31,6 +31,12 @@ export function ProjectsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<Error | null>(null);
 
+  const totalFlags = projects?.reduce((total, project) => total + project.flagCount, 0);
+  const totalEnvironments = projects?.reduce(
+    (total, project) => total + project.environmentCount,
+    0,
+  );
+
   const openCreateDialog = () => {
     setName('');
     setKey('');
@@ -94,12 +100,12 @@ export function ProjectsPage() {
           <strong>{projects?.length ?? '—'}</strong>
         </div>
         <div>
-          <span>Policy</span>
-          <strong>Environment scoped</strong>
+          <span>Feature flags</span>
+          <strong>{totalFlags ?? '—'}</strong>
         </div>
         <div>
-          <span>Runtime</span>
-          <strong>Self-hosted</strong>
+          <span>Environments</span>
+          <strong>{totalEnvironments ?? '—'}</strong>
         </div>
       </section>
 
@@ -107,7 +113,7 @@ export function ProjectsPage() {
       {error && (
         <div className="surface empty-state empty-state--error">
           <strong>API unavailable</strong>
-          <p>Start the ReleaseGate API on port 5080 to load project data.</p>
+          <p>ReleaseGate could not reach the control-plane API.</p>
         </div>
       )}
 
@@ -135,7 +141,7 @@ export function ProjectsPage() {
             <div className="project-row__meta">
               <span>{project.flagCount} flags</span>
               <span>{project.environmentCount} envs</span>
-              <span aria-hidden="true">→</span>
+              <span className="project-row__arrow" aria-hidden="true" />
             </div>
           </Link>
         ))}
