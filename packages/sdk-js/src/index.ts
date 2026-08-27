@@ -15,6 +15,7 @@ export type ReleaseGateClientOptions = {
   baseUrl: string;
   projectKey: string;
   environment: string;
+  apiKey?: string;
   refreshInterval?: number;
   onRefreshError?: (error: unknown) => void;
   fetch?: typeof globalThis.fetch;
@@ -24,6 +25,7 @@ export class ReleaseGateClient {
   private readonly baseUrl: string;
   private readonly projectKey: string;
   private readonly environment: string;
+  private readonly apiKey: string | null;
   private readonly refreshInterval: number | null;
   private readonly onRefreshError?: (error: unknown) => void;
   private readonly fetchImpl: typeof globalThis.fetch;
@@ -38,6 +40,7 @@ export class ReleaseGateClient {
     this.baseUrl = normalizeRequired(options.baseUrl, 'baseUrl').replace(/\/+$/, '');
     this.projectKey = normalizeRequired(options.projectKey, 'projectKey');
     this.environment = normalizeRequired(options.environment, 'environment');
+    this.apiKey = options.apiKey?.trim() || null;
     this.refreshInterval = normalizeRefreshInterval(options.refreshInterval);
     this.onRefreshError = options.onRefreshError;
     this.fetchImpl = options.fetch ?? globalThis.fetch;
@@ -87,6 +90,10 @@ export class ReleaseGateClient {
     const headers = new Headers({
       Accept: 'application/json',
     });
+
+    if (this.apiKey) {
+      headers.set('X-ReleaseGate-Key', this.apiKey);
+    }
 
     if (this.etag) {
       headers.set('If-None-Match', this.etag);
