@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using ReleaseGate.Api.Contracts;
 using ReleaseGate.Api.Infrastructure;
@@ -22,6 +24,7 @@ public static class RuntimeEndpoints
         string projectKey,
         string environmentKey,
         string? subjectKey,
+        HttpContext httpContext,
         ReleaseGateDbContext db,
         CancellationToken cancellationToken)
     {
@@ -75,11 +78,60 @@ public static class RuntimeEndpoints
             })
             .ToList();
 
+        var etag = CreateSnapshotEtag(
+            projectKey,
+            normalizedEnvironmentKey,
+            normalizedSubjectKey,
+            flags);
+
+        httpContext.Response.Headers["ETag"] = etag;
+        httpContext.Response.Headers["Cache-Control"] = "private, no-cache";
+
+        if (MatchesIfNoneMatch(httpContext.Request.Headers["If-None-Match"].ToString(), etag))
+        {
+            return Results.StatusCode(StatusCodes.Status304NotModified);
+        }
+
         return Results.Ok(new RuntimeSnapshotResponse(
             projectKey,
             normalizedEnvironmentKey,
             normalizedSubjectKey,
             DateTimeOffset.UtcNow,
             flags));
+    }
+
+    private static string CreateSnapshotEtag(
+        string projectKey,
+        string environmentKey,
+        string subjectKey,
+        IReadOnlyList<RuntimeFlagResponse> flags)
+    {
+        var input = new StringBuilder()
+            .Append(projectKey).Append('\n')
+            .Append(environmentKey).Append('\n')
+            .Append(subjectKey).Append('\n');
+
+        foreach (var flag in flags)
+        {
+            input.Append(flag.Key)
+                .Append('=')
+                .Append(flag.Enabled ? '1' : '0')
+                .Append('\n');
+        }
+
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(input.ToString()));
+        return $"W/\"{Convert.ToHexString(hash)}\"";
+    }
+
+    private static bool MatchesIfNoneMatch(string ifNoneMatch, string etag)
+    {
+        if (string.IsNullOrWhiteSpace(ifNoneMatch))
+        {
+            return false;
+        }
+
+        return ifNoneMatch
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Any(candidate => candidate == "*" || string.Equals(candidate, etag, StringComparison.Ordinal));
     }
 }
