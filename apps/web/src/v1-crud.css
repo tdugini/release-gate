@@ -103,6 +103,80 @@
   flex: 0 0 auto;
 }
 
+.delete-confirmation {
+  display: grid;
+  gap: 22px;
+  padding: 24px 26px 26px;
+}
+
+.delete-confirmation__warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #f1d2ce;
+  border-radius: 13px;
+  background: linear-gradient(180deg, #fff9f8, #fff5f3);
+}
+
+.delete-confirmation__icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  border-radius: 10px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.delete-confirmation__warning > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.delete-confirmation__warning strong {
+  color: #75241e;
+  font-size: 0.9rem;
+  font-weight: 740;
+}
+
+.delete-confirmation__warning p {
+  margin: 0;
+  color: #80635f;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.delete-confirmation__warning code {
+  padding: 2px 5px;
+  border: 1px solid #ead4d0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #6f3b36;
+}
+
+.delete-confirmation__actions {
+  padding-top: 0;
+}
+
+.delete-confirmation__actions .button--danger {
+  min-width: 116px;
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #fff;
+  box-shadow: 0 5px 14px rgba(179, 38, 30, 0.18);
+}
+
+.delete-confirmation__actions .button--danger:hover:not(:disabled) {
+  border-color: #982019;
+  background: #982019;
+  box-shadow: 0 8px 20px rgba(179, 38, 30, 0.24);
+}
+
 @media (max-width: 700px) {
   .project-header__controls {
     width: 100%;
@@ -142,6 +216,19 @@
   }
 
   .management-danger-zone .button--danger {
+    width: 100%;
+  }
+
+  .delete-confirmation {
+    padding: 20px;
+  }
+
+  .delete-confirmation__actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .delete-confirmation__actions .button {
     width: 100%;
   }
 }
