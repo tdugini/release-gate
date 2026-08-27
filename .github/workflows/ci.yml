@@ -44,6 +44,13 @@ jobs:
       - name: Test
         run: dotnet test ReleaseGate.slnx --configuration Release --no-build
 
+      - name: Verify migration snapshot is current
+        run: >-
+          dotnet ef migrations has-pending-model-changes
+          --project apps/api/ReleaseGate.Api
+          --configuration Release
+          --no-build
+
       - name: Apply migrations to empty PostgreSQL database
         run: >-
           dotnet ef database update
