@@ -1,0 +1,53 @@
+/* v1.0 directional icon cleanup: all rendered chevrons/arrows use shared SVG assets. */
+
+.back-link::before,
+.project-row__arrow::before,
+.change-history__transition > span:nth-child(2)::before {
+  content: "";
+  display: block;
+  border: 0;
+  background-color: currentColor;
+  transform: none;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.back-link::before {
+  width: 16px;
+  height: 16px;
+  -webkit-mask-image: url('./assets/chevron-left.svg');
+  mask-image: url('./assets/chevron-left.svg');
+}
+
+.project-row__arrow::before {
+  width: 16px;
+  height: 16px;
+  -webkit-mask-image: url('./assets/chevron-right.svg');
+  mask-image: url('./assets/chevron-right.svg');
+}
+
+/* The flag table already renders its trailing chevron as inline SVG. */
+.row-arrow::before {
+  content: none;
+}
+
+.change-history__transition > span:nth-child(2) {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  color: #96949f;
+  font-size: 0;
+}
+
+.change-history__transition > span:nth-child(2)::before {
+  width: 16px;
+  height: 16px;
+  -webkit-mask-image: url('./assets/arrow-right.svg');
+  mask-image: url('./assets/arrow-right.svg');
+}
