@@ -15,7 +15,10 @@ export function AppShell() {
 
         <nav className="sidebar__nav" aria-label="Primary navigation">
           <NavLink to="/" end>
-            Projects
+            <svg className="sidebar__nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4.75 5.75h5.1l1.45 1.7h7.95v10.8H4.75z" />
+            </svg>
+            <span>Projects</span>
           </NavLink>
         </nav>
 
