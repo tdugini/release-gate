@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Dialog } from '../components/Dialog';
+import { useAuth } from '../components/AuthProvider';
 import { useToast } from '../components/ToastProvider';
 import { useAsync } from '../hooks/useAsync';
 import { ApiError, api } from '../lib/api';
@@ -18,7 +19,9 @@ function getFieldError(error: unknown, field: string) {
 
 export function ProjectsPage() {
   const navigate = useNavigate();
+  const { hasRole } = useAuth();
   const { showToast } = useToast();
+  const canOperate = hasRole('operator');
   const { data: projects, loading, error } = useAsync(() => api.projects.list(), []);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [name, setName] = useState('');
@@ -78,9 +81,11 @@ export function ProjectsPage() {
             Keep release controls close to the applications they belong to.
           </p>
         </div>
-        <button className="button button--primary" type="button" onClick={openCreateDialog}>
-          New project
-        </button>
+        {canOperate && (
+          <button className="button button--primary" type="button" onClick={openCreateDialog}>
+            New project
+          </button>
+        )}
       </header>
 
       <section className="metric-strip" aria-label="Workspace summary">
@@ -111,9 +116,11 @@ export function ProjectsPage() {
           <span className="empty-state__index">01</span>
           <h2>No projects yet</h2>
           <p>Create your first project to establish its development, staging and production environments.</p>
-          <button className="button button--primary" type="button" onClick={openCreateDialog}>
-            Create project
-          </button>
+          {canOperate && (
+            <button className="button button--primary" type="button" onClick={openCreateDialog}>
+              Create project
+            </button>
+          )}
         </div>
       )}
 
@@ -135,7 +142,7 @@ export function ProjectsPage() {
       </div>
 
       <Dialog
-        open={dialogOpen}
+        open={canOperate && dialogOpen}
         title="Create project"
         description="Projects automatically receive development, staging and production environments."
         onClose={closeCreateDialog}

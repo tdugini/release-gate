@@ -6,22 +6,24 @@ It is designed around a real internal-platform problem: teams need a safe way to
 
 **ASP.NET Core · React · TypeScript · PostgreSQL · Entity Framework Core · Docker**
 
-## Current milestone — v0.5
+## Current milestone — v0.6
 
-**SDK & runtime updates — in progress.**
+**Authenticated control plane & RBAC.**
 
-The current milestone adds an application-facing runtime boundary on top of deterministic evaluation and production-safe flag management.
+ReleaseGate now separates application-facing runtime delivery from authenticated control-plane operations. Control-plane users authenticate with server-configured bearer tokens and receive explicit roles that determine which management and review actions they may perform.
 
 ReleaseGate now provides:
 
-- a subject-specific runtime snapshot containing evaluated flag values;
-- a dependency-free JavaScript/TypeScript SDK;
-- in-memory `isEnabled()` checks after one snapshot fetch;
-- manual and automatic snapshot refresh;
-- resilient polling that preserves the last valid configuration on failures;
-- conditional HTTP revalidation with ETags and `304 Not Modified` responses.
+- authenticated access to project, flag and audit APIs;
+- `operator` and `reviewer` control-plane roles;
+- operator-only project, flag and environment mutations;
+- reviewer-only production approval and rejection actions;
+- audit actors derived from authenticated identities instead of caller-provided headers;
+- self-review protection for production changes;
+- an authenticated React control plane that displays the current identity and assigned roles;
+- a runtime snapshot boundary that remains application-facing and independent from control-plane authentication.
 
-The runtime API intentionally returns only the final evaluated boolean for each flag. Rollout percentages, buckets, pending changes and audit metadata remain part of the operator-facing control plane.
+The development setup intentionally uses static server-configured bearer tokens rather than introducing a placeholder identity provider. The authorization model is implemented end to end and can later be connected to a real OIDC/OAuth provider without changing the domain permissions.
 
 ### Milestone progress
 
@@ -29,8 +31,9 @@ The runtime API intentionally returns only the final evaluated boolean for each 
 - **v0.2 — Flag management UI:** project/flag creation, per-environment state and rollout management, validation and operator feedback.
 - **v0.3 — Runtime evaluation:** deterministic subject bucketing and percentage rollout evaluation endpoint.
 - **v0.4 — Audit & approvals:** persisted change history, control-plane audit view and approval/rejection workflow for production changes.
-- **v0.5 — SDK & updates:** runtime snapshot delivery, JavaScript/TypeScript SDK, automatic refresh and conditional revalidation. **Current.**
-- **v1.0 — Product polish:** documentation, deployment and portfolio-ready demo.
+- **v0.5 — SDK & updates:** runtime snapshot delivery, JavaScript/TypeScript SDK, automatic refresh and conditional revalidation.
+- **v0.6 — Authentication & RBAC:** authenticated control plane, operator/reviewer roles, authenticated audit actors and self-review protection. **Current.**
+- **v1.0 — Product polish:** migrations, deployment, operational documentation and portfolio-ready demo.
 
 ## Product model
 
@@ -50,6 +53,17 @@ Project
 This avoids duplicating the flag definition for every environment and keeps the identity of a flag stable throughout its lifecycle.
 
 Environment configuration changes also produce persisted history entries so operators can inspect how a flag reached its current state. Production changes must be reviewed before they affect runtime traffic.
+
+## Control-plane roles
+
+ReleaseGate currently defines two control-plane roles:
+
+| Role | Capabilities |
+| --- | --- |
+| `operator` | Create projects and flags, and change environment configuration. Production mutations are submitted for review instead of being applied immediately. |
+| `reviewer` | Inspect control-plane state and approve or reject pending production changes created by another identity. |
+
+A reviewer cannot approve or reject their own production change.
 
 ## Repository layout
 
@@ -88,6 +102,13 @@ dotnet run --project apps/api/ReleaseGate.Api
 
 The development API listens on `http://localhost:5080`.
 
+Development control-plane identities are configured in `apps/api/ReleaseGate.Api/appsettings.Development.json`:
+
+- operator token: `releasegate-local-operator`
+- reviewer token: `releasegate-local-reviewer`
+
+These values are development-only credentials and are intentionally stored in development configuration for local testing.
+
 ### 3. Start the web app
 
 ```bash
@@ -96,7 +117,7 @@ npm ci
 npm run dev
 ```
 
-The web app listens on `http://localhost:5173`.
+The web app listens on `http://localhost:5173`. Enter one of the development bearer tokens on the access screen to open the control plane.
 
 ### 4. Validate the JavaScript SDK
 
@@ -111,10 +132,24 @@ npm test
 
 ## API examples
 
-Create a project:
+Control-plane requests require an authenticated bearer token:
+
+```http
+Authorization: Bearer releasegate-local-operator
+```
+
+Inspect the current control-plane identity:
+
+```http
+GET /api/auth/me
+Authorization: Bearer releasegate-local-operator
+```
+
+Create a project as an operator:
 
 ```http
 POST /api/projects
+Authorization: Bearer releasegate-local-operator
 Content-Type: application/json
 
 {
@@ -128,6 +163,7 @@ Create a flag:
 
 ```http
 POST /api/projects/silva-commerce/flags
+Authorization: Bearer releasegate-local-operator
 Content-Type: application/json
 
 {
@@ -141,8 +177,8 @@ Submit a production rollout change for review:
 
 ```http
 PATCH /api/projects/silva-commerce/flags/new-checkout/environments/production
+Authorization: Bearer releasegate-local-operator
 Content-Type: application/json
-X-ReleaseGate-Actor: tommaso
 
 {
   "enabled": true,
@@ -150,30 +186,34 @@ X-ReleaseGate-Actor: tommaso
 }
 ```
 
+The audit actor is derived from the authenticated identity. Callers cannot override it with a request header.
+
 Inspect flag change history:
 
 ```http
 GET /api/projects/silva-commerce/flags/new-checkout/changes?environment=production
+Authorization: Bearer releasegate-local-reviewer
 ```
 
-Approve a pending production change:
+Approve a pending production change as a different reviewer identity:
 
 ```http
 POST /api/projects/silva-commerce/flags/new-checkout/changes/{changeId}/approve
-X-ReleaseGate-Actor: reviewer
+Authorization: Bearer releasegate-local-reviewer
 ```
 
 Or reject it without changing the active production configuration:
 
 ```http
 POST /api/projects/silva-commerce/flags/new-checkout/changes/{changeId}/reject
-X-ReleaseGate-Actor: reviewer
+Authorization: Bearer releasegate-local-reviewer
 ```
 
-Evaluate one flag for one subject:
+Evaluate one flag for one subject through the authenticated control-plane inspection endpoint:
 
 ```http
 POST /api/projects/silva-commerce/flags/new-checkout/evaluate
+Authorization: Bearer releasegate-local-operator
 Content-Type: application/json
 
 {
@@ -187,6 +227,8 @@ Fetch the application-facing runtime snapshot for that subject:
 ```http
 GET /api/runtime/projects/silva-commerce/environments/production/snapshot?subjectKey=user-92841
 ```
+
+The runtime snapshot endpoint does not use control-plane bearer authentication. It represents the application-consumption boundary and is intentionally kept separate from administrative permissions.
 
 Runtime responses include an ETag. Consumers can revalidate the cached snapshot without downloading an unchanged JSON payload:
 
@@ -224,16 +266,17 @@ ReleaseGate deliberately evolves through complete vertical slices instead of gen
 
 The project is built around several constraints:
 
-- explicit control-plane and runtime boundaries;
+- explicit authenticated control-plane and application-facing runtime boundaries;
+- role-based authorization for management and production review operations;
 - environment-safe configuration;
 - deterministic percentage rollout evaluation;
 - efficient snapshot-based SDK consumption;
 - resilient runtime configuration refresh;
 - accessibility and responsive behavior in the control plane;
 - deterministic builds and integration tests;
-- auditable production configuration changes;
-- approval workflows before sensitive production changes are applied.
+- auditable production configuration changes with authenticated actors;
+- separation of duties for sensitive production changes.
 
-Authentication/RBAC, explicit EF migrations, SDK publishing/versioning and production deployment remain future hardening steps.
+Explicit EF migrations, real identity-provider integration, SDK publishing/versioning and production deployment remain future hardening steps.
 
 See `ARCHITECTURE.md` for the current decisions and planned boundaries.

@@ -2,19 +2,42 @@
 
 ## Why this project exists
 
-ReleaseGate is intentionally modeled as an internal developer platform rather than a generic CRUD application. The domain is small enough to understand quickly, while still creating room for real engineering concerns: environment isolation, rollout evaluation, auditability, approvals, runtime delivery and SDK design.
+ReleaseGate is intentionally modeled as an internal developer platform rather than a generic CRUD application. The domain is small enough to understand quickly, while still creating room for real engineering concerns: environment isolation, rollout evaluation, auditability, approvals, runtime delivery, SDK design, authentication and authorization.
 
 ## System boundaries
 
 ReleaseGate currently contains three main boundaries:
 
-- `ReleaseGate.Api` owns the domain model, persistence, control-plane HTTP API and runtime delivery API;
-- `apps/web` is the operator control plane used to manage projects, flags and environment configuration;
+- `ReleaseGate.Api` owns the domain model, persistence, authenticated control-plane HTTP API and runtime delivery API;
+- `apps/web` is the authenticated operator control plane used to manage projects, flags, environment configuration and production reviews;
 - `packages/sdk-js` is the application-facing JavaScript/TypeScript SDK used by consumers to read evaluated feature flags.
 
 PostgreSQL is the system of record.
 
-The control plane and runtime API deliberately expose different representations. Operators need configuration, rollout and audit detail. Applications only need the final evaluated value of each flag for their current subject.
+The control plane and runtime API deliberately expose different representations and security concerns. Operators need configuration, rollout, audit and review detail. Applications only need the final evaluated value of each flag for their current subject.
+
+## Authentication and authorization boundary
+
+Control-plane routes require bearer authentication. The current implementation uses server-configured static tokens because v0.6 is focused on the authorization model and control-plane boundary rather than introducing a placeholder external identity provider.
+
+An authenticated control-plane identity contains:
+
+- a stable subject used for authorization and audit attribution;
+- a display name used by the React control plane;
+- one or more roles.
+
+The current roles are:
+
+- `operator` — may create projects and flags and mutate environment configuration;
+- `reviewer` — may approve or reject pending production changes created by another identity.
+
+Read-only control-plane access requires authentication, while mutation endpoints enforce the appropriate role. Audit actors are derived from the authenticated subject instead of caller-provided headers, which prevents clients from spoofing who requested or reviewed a change.
+
+Production review also enforces separation of duties: the identity that requested a pending production change cannot approve or reject that same change.
+
+The React control plane resolves the current identity through `/api/auth/me`, persists the development access token locally, exposes assigned roles in the shell, and removes or disables actions the current role cannot perform. The API remains the source of truth for authorization; UI gating is only a usability layer.
+
+The runtime snapshot endpoint is intentionally outside control-plane authentication. It is an application-consumption boundary and will eventually need its own production-grade machine-to-machine access strategy rather than inheriting human control-plane roles.
 
 ## Flag identity vs environment state
 
@@ -27,6 +50,7 @@ That distinction matters because `new-checkout` should remain the same flag whil
 Control-plane routes are project-scoped:
 
 ```text
+/api/auth/me
 /api/projects
 /api/projects/{projectKey}
 /api/projects/{projectKey}/flags
@@ -49,7 +73,7 @@ project + flag + environment + subject
 
 ReleaseGate hashes that stable identity into a fixed bucket space. The same subject therefore receives the same decision for a given rollout configuration instead of randomly moving in and out of a rollout between requests.
 
-The single-flag evaluation endpoint remains useful for inspection and testing, while application consumers use a runtime snapshot endpoint:
+The single-flag evaluation endpoint remains useful for authenticated control-plane inspection and testing, while application consumers use a runtime snapshot endpoint:
 
 ```text
 GET /api/runtime/projects/{projectKey}/environments/{environmentKey}/snapshot?subjectKey={subjectKey}
@@ -81,10 +105,11 @@ During local development the schema is currently created automatically with `Ens
 
 ## Current hardening boundaries
 
-The project deliberately avoids placeholder security or infrastructure features. The next hardening steps are expected to include:
+Authentication and role-based authorization are now implemented for the human control plane. The next hardening steps are expected to include:
 
-- authentication and role-based authorization for control-plane operations and production reviews;
 - explicit EF migrations;
+- integration with a real OIDC/OAuth identity provider while preserving the current subject/role model;
+- a production-grade application credential strategy for runtime snapshot access;
 - SDK publishing/versioning;
 - production deployment and operational documentation;
 - push-based or streaming configuration delivery only if polling becomes an actual product constraint.

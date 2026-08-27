@@ -1,0 +1,140 @@
+.environment-card--editable:has(.production-warning--pending) {
+  border: 2px solid #c9853d;
+  background: #fffaf3;
+  box-shadow: 0 8px 24px rgba(155, 93, 30, 0.08);
+}
+
+.environment-card--editable:has(.production-warning--pending) .environment-card__top .status-dot::before {
+  content: "Live";
+  margin-right: 2px;
+  color: #8b5a2b;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.environment-card--editable:has(.production-warning--pending) .environment-editor__controls,
+.environment-card--editable:has(.production-warning--pending) .environment-card__rollout {
+  border-color: #ead8c4;
+}
+
+.production-warning--pending {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  padding: 15px 16px 14px;
+  border: 1px solid #d9a66a;
+  border-left: 4px solid #b96f2f;
+  border-radius: 6px;
+  background: #f8ead8;
+  color: #6f431b;
+  font-weight: 550;
+}
+
+.production-warning--pending::before {
+  content: "Awaiting review";
+  width: fit-content;
+  padding: 3px 7px;
+  border: 1px solid #c9853d;
+  border-radius: 999px;
+  background: #fff5e8;
+  color: #8a4f1e;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.environment-card--editable:has(.production-warning--pending) .environment-editor__footer .button:disabled {
+  border-color: #c9853d;
+  background: #efd4b2;
+  color: #6f431b;
+  opacity: 1;
+}
+
+.change-history__item:has(.change-status--pending) {
+  background: #fffaf3;
+  box-shadow: inset 4px 0 0 #c9853d;
+}
+
+.change-status--pending {
+  border-color: #c9853d;
+  background: #fff1df;
+  color: #8a4f1e;
+}
+
+.change-history__item:has(.change-status--pending) .change-history__permission-note {
+  color: #7a4a20;
+}
+
+/* Read-only RBAC states should look like values, not disabled controls. */
+.toggle-field button:disabled {
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  cursor: default;
+  font-weight: 650;
+  opacity: 1;
+}
+
+.toggle-field button.is-enabled:disabled {
+  border: 0;
+  background: transparent;
+  color: #1d604c;
+}
+
+.range-field:has(.range-input:disabled) {
+  grid-template-columns: 1fr;
+}
+
+.field input.range-input:disabled {
+  display: none;
+}
+
+.range-field:has(.range-input:disabled) .range-value {
+  text-align: left;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.environment-editor__controls:has(.toggle-field button:disabled) {
+  position: relative;
+  align-items: start;
+}
+
+.environment-editor__controls:has(.toggle-field button:disabled)::after {
+  content: "Read only";
+  position: absolute;
+  top: 18px;
+  right: 0;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 720px) {
+  .environment-card--editable:has(.production-warning--pending) {
+    border-width: 2px;
+  }
+
+  .environment-editor__controls:has(.toggle-field button:disabled)::after {
+    position: static;
+    width: fit-content;
+    grid-row: 1;
+  }
+}

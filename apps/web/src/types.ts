@@ -1,3 +1,9 @@
+export type ControlPlaneIdentity = {
+  subject: string;
+  displayName: string;
+  roles: string[];
+};
+
 export type Environment = {
   id: string;
   name: string;

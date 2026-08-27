@@ -8,7 +8,7 @@ namespace ReleaseGate.Api.IntegrationTests;
 public sealed class ProjectFlowTests(ReleaseGateApiFactory factory)
     : IClassFixture<ReleaseGateApiFactory>
 {
-    private readonly HttpClient _client = factory.CreateClient();
+    private readonly HttpClient _client = TestClients.CreateOperator(factory);
 
     [Fact]
     public async Task Create_project_creates_default_environments()

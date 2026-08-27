@@ -1,8 +1,10 @@
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using ReleaseGate.Api.Contracts;
 using ReleaseGate.Api.Domain;
 using ReleaseGate.Api.Infrastructure;
 using ReleaseGate.Api.Persistence;
+using ReleaseGate.Api.Security;
 
 namespace ReleaseGate.Api.Endpoints;
 
@@ -10,16 +12,22 @@ public static class FeatureFlagEndpoints
 {
     public static IEndpointRouteBuilder MapFeatureFlagEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        var group = endpoints.MapGroup("/api/projects/{projectKey}/flags").WithTags("Feature flags");
+        var group = endpoints
+            .MapGroup("/api/projects/{projectKey}/flags")
+            .WithTags("Feature flags")
+            .RequireAuthorization();
 
         group.MapGet("", GetFlags);
         group.MapGet("/{flagKey}", GetFlag);
         group.MapGet("/{flagKey}/changes", GetFlagChanges);
-        group.MapPost("", CreateFlag);
+        group.MapPost("", CreateFlag).RequireAuthorization(ControlPlanePolicies.Operator);
         group.MapPost("/{flagKey}/evaluate", EvaluateFlag);
-        group.MapPost("/{flagKey}/changes/{changeId:guid}/approve", ApproveFlagChange);
-        group.MapPost("/{flagKey}/changes/{changeId:guid}/reject", RejectFlagChange);
-        group.MapPatch("/{flagKey}/environments/{environmentKey}", UpdateEnvironment);
+        group.MapPost("/{flagKey}/changes/{changeId:guid}/approve", ApproveFlagChange)
+            .RequireAuthorization(ControlPlanePolicies.Reviewer);
+        group.MapPost("/{flagKey}/changes/{changeId:guid}/reject", RejectFlagChange)
+            .RequireAuthorization(ControlPlanePolicies.Reviewer);
+        group.MapPatch("/{flagKey}/environments/{environmentKey}", UpdateEnvironment)
+            .RequireAuthorization(ControlPlanePolicies.Operator);
 
         return endpoints;
     }
@@ -458,9 +466,18 @@ public static class FeatureFlagEndpoints
             });
         }
 
+        var actor = GetActor(httpContext);
+        if (string.Equals(change.RequestedBy, actor, StringComparison.OrdinalIgnoreCase))
+        {
+            return Results.Conflict(new
+            {
+                message = "Production changes must be reviewed by a different user."
+            });
+        }
+
         var now = DateTimeOffset.UtcNow;
         change.Status = approved ? FlagChangeStatuses.Approved : FlagChangeStatuses.Rejected;
-        change.ReviewedBy = GetActor(httpContext);
+        change.ReviewedBy = actor;
         change.ReviewedAt = now;
 
         if (approved)
@@ -489,15 +506,7 @@ public static class FeatureFlagEndpoints
             change.ReviewedBy,
             change.ReviewedAt);
 
-    private static string GetActor(HttpContext httpContext)
-    {
-        var actor = httpContext.Request.Headers["X-ReleaseGate-Actor"].FirstOrDefault()?.Trim();
-
-        if (string.IsNullOrWhiteSpace(actor))
-        {
-            return "control-plane";
-        }
-
-        return actor.Length <= 120 ? actor : actor[..120];
-    }
+    private static string GetActor(HttpContext httpContext) =>
+        httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
+        ?? throw new InvalidOperationException("Authenticated control-plane requests require a subject claim.");
 }

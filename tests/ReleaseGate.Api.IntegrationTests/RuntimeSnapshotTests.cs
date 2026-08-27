@@ -8,7 +8,7 @@ namespace ReleaseGate.Api.IntegrationTests;
 public sealed class RuntimeSnapshotTests(ReleaseGateApiFactory factory)
     : IClassFixture<ReleaseGateApiFactory>
 {
-    private readonly HttpClient _client = factory.CreateClient();
+    private readonly HttpClient _client = TestClients.CreateOperator(factory);
 
     [Fact]
     public async Task Snapshot_returns_all_flags_evaluated_for_the_subject()
@@ -179,7 +179,6 @@ public sealed class RuntimeSnapshotTests(ReleaseGateApiFactory factory)
         {
             Content = JsonContent.Create(new UpdateFlagEnvironmentRequest(enabled, rolloutPercentage))
         };
-        request.Headers.Add("X-ReleaseGate-Actor", "runtime-test");
 
         var response = await _client.SendAsync(request, cancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { useAuth } from '../components/AuthProvider';
 import { StatusDot } from '../components/StatusDot';
 import { useToast } from '../components/ToastProvider';
 import { useAsync } from '../hooks/useAsync';
@@ -16,7 +17,10 @@ function formatFlagState(enabled: boolean, rolloutPercentage: number) {
 
 export function FlagPage() {
   const { projectKey = '', flagKey = '' } = useParams();
+  const { identity, hasRole } = useAuth();
   const { showToast } = useToast();
+  const canOperate = hasRole('operator');
+  const canReview = hasRole('reviewer');
   const flagRequest = useAsync(
     () => api.flags.get(projectKey, flagKey),
     [projectKey, flagKey],
@@ -167,7 +171,7 @@ export function FlagPage() {
                         className={draft.enabled ? 'is-enabled' : ''}
                         onClick={() => updateDraft(item.environment, { enabled: !draft.enabled })}
                         aria-pressed={draft.enabled}
-                        disabled={hasPendingChange}
+                        disabled={!canOperate || hasPendingChange}
                       >
                         {draft.enabled ? 'Enabled' : 'Disabled'}
                       </button>
@@ -189,18 +193,20 @@ export function FlagPage() {
                               rolloutPercentage: Number(event.target.value),
                             })
                           }
-                          disabled={!draft.enabled || hasPendingChange}
+                          disabled={!canOperate || !draft.enabled || hasPendingChange}
                         />
                         <span className="range-value">
                           {draft.enabled ? draft.rolloutPercentage : 0}%
                         </span>
                       </div>
                       <small>
-                        {hasPendingChange
-                          ? 'The current production configuration remains active until the pending change is approved.'
-                          : draft.enabled
-                            ? 'Percentage of eligible traffic receiving the enabled variation.'
-                            : 'Enable the flag to apply a rollout percentage.'}
+                        {!canOperate
+                          ? 'Operator role required to change environment configuration.'
+                          : hasPendingChange
+                            ? 'The current production configuration remains active until the pending change is approved.'
+                            : draft.enabled
+                              ? 'Percentage of eligible traffic receiving the enabled variation.'
+                              : 'Enable the flag to apply a rollout percentage.'}
                       </small>
                     </div>
                   </div>
@@ -221,20 +227,22 @@ export function FlagPage() {
                         ? 'Production configuration unchanged while review is pending.'
                         : `Updated ${new Date(item.updatedAt).toLocaleString()}`}
                     </small>
-                    <button
-                      className="button button--primary"
-                      type="button"
-                      disabled={!isDirty || isSaving || hasPendingChange}
-                      onClick={() => void saveEnvironment(item.environment)}
-                    >
-                      {isSaving
-                        ? isProduction ? 'Submitting…' : 'Saving…'
-                        : hasPendingChange
-                          ? 'Pending approval'
-                          : isDirty
-                            ? isProduction ? 'Submit for approval' : 'Save changes'
-                            : 'Saved'}
-                    </button>
+                    {canOperate && (
+                      <button
+                        className="button button--primary"
+                        type="button"
+                        disabled={!isDirty || isSaving || hasPendingChange}
+                        onClick={() => void saveEnvironment(item.environment)}
+                      >
+                        {isSaving
+                          ? isProduction ? 'Submitting…' : 'Saving…'
+                          : hasPendingChange
+                            ? 'Pending approval'
+                            : isDirty
+                              ? isProduction ? 'Submit for approval' : 'Save changes'
+                              : 'Saved'}
+                      </button>
+                    )}
                   </footer>
                 </article>
               );
@@ -270,6 +278,9 @@ export function FlagPage() {
               <div className="change-history__list">
                 {changesRequest.data.map((change) => {
                   const isReviewing = reviewingChangeId === change.id;
+                  const requestedByCurrentUser =
+                    change.requestedBy.toLowerCase() === identity.subject.toLowerCase();
+                  const canReviewChange = canReview && !requestedByCurrentUser;
 
                   return (
                     <article className="change-history__item" key={change.id}>
@@ -312,7 +323,7 @@ export function FlagPage() {
                         </div>
                       )}
 
-                      {change.status === 'pending' && (
+                      {change.status === 'pending' && canReviewChange && (
                         <div className="change-history__actions">
                           <button
                             className="button button--danger"
@@ -330,6 +341,14 @@ export function FlagPage() {
                           >
                             {isReviewing ? 'Reviewing…' : 'Approve'}
                           </button>
+                        </div>
+                      )}
+
+                      {change.status === 'pending' && !canReviewChange && (
+                        <div className="change-history__permission-note">
+                          {requestedByCurrentUser
+                            ? 'Another reviewer must review this production change.'
+                            : 'Reviewer role required to approve or reject this production change.'}
                         </div>
                       )}
                     </article>
