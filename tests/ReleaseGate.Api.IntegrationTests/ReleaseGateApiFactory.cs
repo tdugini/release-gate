@@ -33,7 +33,13 @@ public sealed class ReleaseGateApiFactory : WebApplicationFactory<Program>
                 ["ControlPlaneAuth:Tokens:2:Subject"] = "dual-role@test",
                 ["ControlPlaneAuth:Tokens:2:DisplayName"] = "Test Dual Role",
                 ["ControlPlaneAuth:Tokens:2:Roles:0"] = "operator",
-                ["ControlPlaneAuth:Tokens:2:Roles:1"] = "reviewer"
+                ["ControlPlaneAuth:Tokens:2:Roles:1"] = "reviewer",
+                ["RuntimeAccess:ApiKeys:0:Key"] = TestClients.RuntimeApiKey,
+                ["RuntimeAccess:ApiKeys:0:ClientId"] = "test-sdk",
+                ["RuntimeAccess:ApiKeys:0:Projects:0"] = "*",
+                ["RuntimeAccess:ApiKeys:1:Key"] = TestClients.ScopedRuntimeApiKey,
+                ["RuntimeAccess:ApiKeys:1:ClientId"] = "scoped-test-sdk",
+                ["RuntimeAccess:ApiKeys:1:Projects:0"] = "runtime-allowed-project"
             });
         });
 
