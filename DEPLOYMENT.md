@@ -43,6 +43,8 @@ The Compose file fails configuration when required secret values are missing.
 
 Do not commit `.env.production`.
 
+The production-like stack uses a dedicated `releasegate-prod-postgres` Docker volume. It is intentionally separate from the development Compose volume so production credentials and schema state cannot accidentally collide with an existing local development database.
+
 ## Start
 
 ```bash
@@ -85,13 +87,13 @@ Stop the application while keeping the PostgreSQL volume:
 docker compose --env-file .env.production -f docker-compose.prod.yml down
 ```
 
-To also delete the database volume:
+To also delete the production-like database volume:
 
 ```bash
 docker compose --env-file .env.production -f docker-compose.prod.yml down -v
 ```
 
-The second command permanently removes the local deployment data.
+The second command permanently removes the production-like deployment data. It does not remove the separate development PostgreSQL volume.
 
 ## CI deployment smoke test
 
