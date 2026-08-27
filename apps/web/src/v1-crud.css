@@ -1,0 +1,147 @@
+/* v1.0 CRUD polish: project/flag management actions and destructive states. */
+
+.project-header__controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.entity-manage-button {
+  background: rgba(255, 255, 255, 0.82);
+  color: #55545e;
+}
+
+.entity-manage-button:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+.flag-detail-header > .flag-detail-header__titlebar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 28px;
+}
+
+.flag-detail-header__identity {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.flag-detail-header__name {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.flag-detail-header__name h1 {
+  margin-bottom: 0;
+}
+
+.flag-detail-header__identity > p {
+  max-width: 650px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.94rem;
+  line-height: 1.6;
+}
+
+.flag-detail-header .entity-manage-button {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.management-form .field input:disabled,
+.management-form .field input[readonly] {
+  border-color: var(--line);
+  background: var(--surface-low);
+  color: #777681;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.management-form .field input:disabled:hover,
+.management-form .field input[readonly]:hover {
+  border-color: var(--line);
+}
+
+.management-danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 4px;
+  padding: 16px;
+  border: 1px solid #f1d2ce;
+  border-radius: 12px;
+  background: #fff8f7;
+}
+
+.management-danger-zone > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.management-danger-zone strong {
+  color: #79251f;
+  font-size: 0.84rem;
+  font-weight: 720;
+}
+
+.management-danger-zone small {
+  max-width: 330px;
+  color: #8b6662;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.management-danger-zone .button--danger {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 700px) {
+  .project-header__controls {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .project-header__controls .entity-manage-button {
+    width: 100%;
+  }
+
+  .flag-detail-header > .flag-detail-header__titlebar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .flag-detail-header__name {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .flag-detail-header .entity-manage-button {
+    width: 100%;
+    margin-top: 0;
+  }
+
+  .management-danger-zone {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .management-danger-zone small {
+    max-width: none;
+  }
+
+  .management-danger-zone .button--danger {
+    width: 100%;
+  }
+}
