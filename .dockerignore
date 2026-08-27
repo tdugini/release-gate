@@ -1,0 +1,11 @@
+**/bin
+**/obj
+**/node_modules
+**/dist
+.git
+.gitignore
+.env
+.env.*
+!.env.production.example
+README.md
+ARCHITECTURE.md
