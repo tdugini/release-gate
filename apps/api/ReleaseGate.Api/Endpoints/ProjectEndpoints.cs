@@ -26,6 +26,8 @@ public static class ProjectEndpoints
         group.MapGet("", GetProjects);
         group.MapGet("/{projectKey}", GetProject);
         group.MapPost("", CreateProject).RequireAuthorization(ControlPlanePolicies.Operator);
+        group.MapPut("/{projectKey}", UpdateProject).RequireAuthorization(ControlPlanePolicies.Operator);
+        group.MapDelete("/{projectKey}", DeleteProject).RequireAuthorization(ControlPlanePolicies.Operator);
 
         return endpoints;
     }
@@ -80,13 +82,12 @@ public static class ProjectEndpoints
     {
         var name = request.Name.Trim();
         var key = request.Key.Trim().ToLowerInvariant();
+        var description = NormalizeDescription(request.Description);
 
-        if (name.Length is < 2 or > 120)
+        var validation = ValidateMetadata(name, description);
+        if (validation is not null)
         {
-            return Results.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["name"] = ["Name must be between 2 and 120 characters."]
-            });
+            return validation;
         }
 
         if (!KeyRules.IsValid(key))
@@ -106,7 +107,7 @@ public static class ProjectEndpoints
         {
             Name = name,
             Key = key,
-            Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim()
+            Description = description
         };
 
         foreach (var environment in DefaultEnvironments)
@@ -124,14 +125,85 @@ public static class ProjectEndpoints
 
         return Results.Created(
             $"/api/projects/{project.Key}",
-            new ProjectDetailResponse(
-                project.Id,
-                project.Name,
-                project.Key,
-                project.Description,
-                project.Environments
-                    .OrderBy(x => x.SortOrder)
-                    .Select(x => new EnvironmentResponse(x.Id, x.Name, x.Key, x.SortOrder))
-                    .ToList()));
+            ToDetailResponse(project));
     }
+
+    private static async Task<IResult> UpdateProject(
+        string projectKey,
+        UpdateProjectRequest request,
+        ReleaseGateDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var project = await db.Projects
+            .Include(x => x.Environments)
+            .SingleOrDefaultAsync(x => x.Key == projectKey, cancellationToken);
+
+        if (project is null)
+        {
+            return Results.NotFound();
+        }
+
+        var name = request.Name.Trim();
+        var description = NormalizeDescription(request.Description);
+        var validation = ValidateMetadata(name, description);
+        if (validation is not null)
+        {
+            return validation;
+        }
+
+        project.Name = name;
+        project.Description = description;
+        await db.SaveChangesAsync(cancellationToken);
+
+        return Results.Ok(ToDetailResponse(project));
+    }
+
+    private static async Task<IResult> DeleteProject(
+        string projectKey,
+        ReleaseGateDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var project = await db.Projects
+            .SingleOrDefaultAsync(x => x.Key == projectKey, cancellationToken);
+
+        if (project is null)
+        {
+            return Results.NotFound();
+        }
+
+        db.Projects.Remove(project);
+        await db.SaveChangesAsync(cancellationToken);
+        return Results.NoContent();
+    }
+
+    private static IResult? ValidateMetadata(string name, string? description)
+    {
+        var errors = new Dictionary<string, string[]>();
+
+        if (name.Length is < 2 or > 120)
+        {
+            errors["name"] = ["Name must be between 2 and 120 characters."];
+        }
+
+        if (description?.Length > 500)
+        {
+            errors["description"] = ["Description must be at most 500 characters."];
+        }
+
+        return errors.Count == 0 ? null : Results.ValidationProblem(errors);
+    }
+
+    private static string? NormalizeDescription(string? description) =>
+        string.IsNullOrWhiteSpace(description) ? null : description.Trim();
+
+    private static ProjectDetailResponse ToDetailResponse(Project project) =>
+        new(
+            project.Id,
+            project.Name,
+            project.Key,
+            project.Description,
+            project.Environments
+                .OrderBy(x => x.SortOrder)
+                .Select(x => new EnvironmentResponse(x.Id, x.Name, x.Key, x.SortOrder))
+                .ToList());
 }
