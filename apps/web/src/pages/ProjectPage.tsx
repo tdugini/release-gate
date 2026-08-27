@@ -37,6 +37,11 @@ export function ProjectPage() {
   const [submittedProductionFlags, setSubmittedProductionFlags] = useState<Set<string>>(
     () => new Set(),
   );
+  const [manageOpen, setManageOpen] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [manageError, setManageError] = useState<Error | null>(null);
+  const [managing, setManaging] = useState(false);
 
   const projectRequest = useAsync(() => api.projects.get(projectKey), [projectKey]);
   const flagsRequest = useAsync(
@@ -62,6 +67,18 @@ export function ProjectPage() {
 
   const closeCreateDialog = () => {
     if (!submitting) setDialogOpen(false);
+  };
+
+  const openManageDialog = () => {
+    if (!projectRequest.data) return;
+    setEditName(projectRequest.data.name);
+    setEditDescription(projectRequest.data.description ?? '');
+    setManageError(null);
+    setManageOpen(true);
+  };
+
+  const closeManageDialog = () => {
+    if (!managing) setManageOpen(false);
   };
 
   const selectEnvironment = (nextEnvironment: string) => {
@@ -90,6 +107,46 @@ export function ProjectPage() {
       showToast(nextError.message, 'error');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const saveProject = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setManaging(true);
+    setManageError(null);
+
+    try {
+      await api.projects.update(projectKey, {
+        name: editName.trim(),
+        description: editDescription.trim() || undefined,
+      });
+      await projectRequest.reload();
+      setManageOpen(false);
+      showToast('Project details updated.');
+    } catch (caught) {
+      const nextError = caught instanceof Error ? caught : new Error('Could not update project.');
+      setManageError(nextError);
+      showToast(nextError.message, 'error');
+    } finally {
+      setManaging(false);
+    }
+  };
+
+  const deleteProject = async () => {
+    if (!projectRequest.data) return;
+    if (!window.confirm(`Delete project "${projectRequest.data.name}" and all of its flags? This cannot be undone.`)) return;
+
+    setManaging(true);
+    setManageError(null);
+    try {
+      await api.projects.delete(projectKey);
+      showToast(`Project ${projectRequest.data.name} deleted.`);
+      navigate('/');
+    } catch (caught) {
+      const nextError = caught instanceof Error ? caught : new Error('Could not delete project.');
+      setManageError(nextError);
+      showToast(nextError.message, 'error');
+      setManaging(false);
     }
   };
 
@@ -128,6 +185,8 @@ export function ProjectPage() {
 
   const nameError = getFieldError(submitError, 'name');
   const keyError = getFieldError(submitError, 'key');
+  const editNameError = getFieldError(manageError, 'name');
+  const editDescriptionError = getFieldError(manageError, 'description');
 
   if (projectRequest.loading) {
     return <div className="page"><div className="surface empty-state">Loading project…</div></div>;
@@ -163,16 +222,23 @@ export function ProjectPage() {
           <p>{project.description ?? 'No project description.'}</p>
         </div>
 
-        <div className="environment-switcher" role="group" aria-label="Environment">
-          {project.environments.map((item) => (
-            <button
-              className={item.key === environment ? 'is-active' : ''}
-              key={item.id}
-              onClick={() => selectEnvironment(item.key)}
-            >
-              {item.name}
+        <div className="project-header__controls">
+          <div className="environment-switcher" role="group" aria-label="Environment">
+            {project.environments.map((item) => (
+              <button
+                className={item.key === environment ? 'is-active' : ''}
+                key={item.id}
+                onClick={() => selectEnvironment(item.key)}
+              >
+                {item.name}
+              </button>
+            ))}
+          </div>
+          {canOperate && (
+            <button className="button entity-manage-button" type="button" onClick={openManageDialog}>
+              Manage project
             </button>
-          ))}
+          )}
         </div>
       </header>
 
@@ -320,6 +386,59 @@ export function ProjectPage() {
             </button>
             <button className="button button--primary" type="submit" disabled={submitting}>
               {submitting ? 'Creating…' : 'Create flag'}
+            </button>
+          </div>
+        </form>
+      </Dialog>
+
+      <Dialog
+        open={canOperate && manageOpen}
+        title="Manage project"
+        description="Update project metadata or permanently remove the project and all of its feature flags."
+        onClose={closeManageDialog}
+      >
+        <form className="management-form" onSubmit={saveProject}>
+          <div className="field">
+            <label htmlFor="project-edit-name">Name</label>
+            <input
+              id="project-edit-name"
+              value={editName}
+              onChange={(event) => setEditName(event.target.value)}
+              autoFocus
+              required
+            />
+            {editNameError && <span className="field-error">{editNameError}</span>}
+          </div>
+          <div className="field">
+            <label htmlFor="project-edit-key">Key</label>
+            <input id="project-edit-key" value={project.key} disabled readOnly />
+            <small>Keys are immutable because they are used in API and SDK references.</small>
+          </div>
+          <div className="field">
+            <label htmlFor="project-edit-description">Description</label>
+            <textarea
+              id="project-edit-description"
+              value={editDescription}
+              onChange={(event) => setEditDescription(event.target.value)}
+            />
+            {editDescriptionError && <span className="field-error">{editDescriptionError}</span>}
+          </div>
+          {manageError && !(editNameError || editDescriptionError) && (
+            <div className="form-error" role="alert">{manageError.message}</div>
+          )}
+          <div className="management-danger-zone">
+            <div>
+              <strong>Delete project</strong>
+              <small>Deletes the project, environments, flags and audit history.</small>
+            </div>
+            <button className="button button--danger" type="button" disabled={managing} onClick={() => void deleteProject()}>
+              Delete project
+            </button>
+          </div>
+          <div className="form-actions">
+            <button className="button" type="button" onClick={closeManageDialog} disabled={managing}>Cancel</button>
+            <button className="button button--primary" type="submit" disabled={managing}>
+              {managing ? 'Saving…' : 'Save project'}
             </button>
           </div>
         </form>
