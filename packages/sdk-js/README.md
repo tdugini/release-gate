@@ -30,11 +30,15 @@ client.isEnabled('missing-flag', true);
 
 ## Refreshing configuration
 
-`refresh()` downloads a new snapshot for the subject passed to `initialize()` and atomically replaces the in-memory flag map.
+`refresh()` revalidates the current runtime snapshot for the subject passed to `initialize()`.
 
 ```ts
 await client.refresh();
 ```
+
+ReleaseGate runtime responses include an ETag. After the first successful request, the SDK sends that value back through `If-None-Match` on subsequent refreshes. If the evaluated flag set has not changed, the API responds with `304 Not Modified` and the SDK keeps the existing in-memory snapshot without downloading or parsing another payload.
+
+If the configuration has changed, the API returns a fresh snapshot and ETag, and the SDK atomically replaces its in-memory flag map.
 
 If a refresh request fails, the last valid snapshot remains available.
 
