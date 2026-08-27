@@ -190,7 +190,7 @@ export function ProjectPage() {
           <span>Rollout</span>
           <span>Key</span>
           <span>Action</span>
-          <span />
+          <span aria-hidden="true" />
         </div>
 
         {flagsRequest.loading && <div className="flags-table__message">Loading flags…</div>}
@@ -249,7 +249,9 @@ export function ProjectPage() {
               ) : (
                 <span />
               )}
-              <span className="row-arrow" aria-hidden="true" />
+              <svg className="row-arrow" viewBox="0 0 20 20" aria-hidden="true">
+                <path d="m8 5 5 5-5 5" />
+              </svg>
             </div>
           );
         })}
