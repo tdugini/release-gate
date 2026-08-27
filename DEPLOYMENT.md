@@ -12,7 +12,7 @@ Browser / SDK
      v
 nginx :80
   |      \
-  |       \ static React assets
+  |       \\ static React assets
   v
 API :8080
   |
@@ -44,6 +44,14 @@ The Compose file fails configuration when required secret values are missing.
 Do not commit `.env.production`.
 
 The production-like stack uses a dedicated `releasegate-prod-postgres` Docker volume. It is intentionally separate from the development Compose volume so production credentials and schema state cannot accidentally collide with an existing local development database.
+
+### PostgreSQL password changes
+
+`POSTGRES_PASSWORD` is used by the official PostgreSQL image when the database volume is initialized for the first time. Changing only `POSTGRES_PASSWORD` in `.env.production` does not rotate the password of an already-created PostgreSQL role.
+
+For a disposable local production-like environment, either keep the original password or recreate only the production-like database volume before starting the stack again.
+
+For a persistent deployment, rotate the database credential explicitly in PostgreSQL first (for example with `ALTER ROLE`), then update the application secret/configuration and recreate or restart the API container. Do not delete a persistent production database volume just to rotate credentials.
 
 ## Start
 
