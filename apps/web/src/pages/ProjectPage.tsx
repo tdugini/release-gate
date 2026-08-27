@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Dialog } from '../components/Dialog';
+import { useAuth } from '../components/AuthProvider';
 import { StatusDot } from '../components/StatusDot';
 import { useToast } from '../components/ToastProvider';
 import { useAsync } from '../hooks/useAsync';
@@ -20,7 +21,9 @@ function getFieldError(error: unknown, field: string) {
 export function ProjectPage() {
   const { projectKey = '' } = useParams();
   const navigate = useNavigate();
+  const { hasRole } = useAuth();
   const { showToast } = useToast();
+  const canOperate = hasRole('operator');
   const [environment, setEnvironment] = useState('production');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [name, setName] = useState('');
@@ -131,9 +134,11 @@ export function ProjectPage() {
           <p className="eyebrow">{environmentLabel}</p>
           <h2>Feature flags</h2>
         </div>
-        <button className="button button--primary" type="button" onClick={openCreateDialog}>
-          Create flag
-        </button>
+        {canOperate && (
+          <button className="button button--primary" type="button" onClick={openCreateDialog}>
+            Create flag
+          </button>
+        )}
       </section>
 
       <div className="flags-table">
@@ -182,7 +187,7 @@ export function ProjectPage() {
       </div>
 
       <Dialog
-        open={dialogOpen}
+        open={canOperate && dialogOpen}
         title="Create feature flag"
         description="The flag will be created across all project environments with rollout disabled by default."
         onClose={closeCreateDialog}
