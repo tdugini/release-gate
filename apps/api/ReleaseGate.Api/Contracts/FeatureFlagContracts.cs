@@ -2,6 +2,8 @@ namespace ReleaseGate.Api.Contracts;
 
 public sealed record CreateFeatureFlagRequest(string Name, string Key, string? Description);
 
+public sealed record UpdateFeatureFlagRequest(string Name, string? Description);
+
 public sealed record UpdateFlagEnvironmentRequest(bool Enabled, int RolloutPercentage);
 
 public sealed record FeatureFlagSummaryResponse(
