@@ -1,4 +1,5 @@
 import type {
+  ControlPlaneIdentity,
   FeatureFlagDetail,
   FeatureFlagSummary,
   FlagChange,
@@ -8,6 +9,7 @@ import type {
 } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:5080';
+const ACCESS_TOKEN_KEY = 'releasegate.controlPlaneToken';
 
 type ProblemDetails = {
   title?: string;
@@ -26,11 +28,25 @@ export class ApiError extends Error {
   }
 }
 
+export function getAccessToken() {
+  return window.localStorage.getItem(ACCESS_TOKEN_KEY);
+}
+
+export function setAccessToken(token: string) {
+  window.localStorage.setItem(ACCESS_TOKEN_KEY, token);
+}
+
+export function clearAccessToken() {
+  window.localStorage.removeItem(ACCESS_TOKEN_KEY);
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const accessToken = getAccessToken();
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...options?.headers,
     },
   });
@@ -61,6 +77,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  auth: {
+    me: () => request<ControlPlaneIdentity>('/api/auth/me'),
+  },
   projects: {
     list: () => request<ProjectSummary[]>('/api/projects'),
     get: (projectKey: string) => request<ProjectDetail>(`/api/projects/${projectKey}`),
