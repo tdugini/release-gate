@@ -1,0 +1,188 @@
+/* v1.0 third-pass navigation and table refinements. */
+
+/* Use a real icon in the sidebar instead of the decorative square from the first pass. */
+.sidebar__nav a {
+  justify-content: flex-start;
+  gap: 11px;
+}
+
+.sidebar__nav a::before {
+  content: none;
+}
+
+.sidebar__nav-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.86;
+}
+
+.sidebar__nav a.active .sidebar__nav-icon {
+  color: #9f9dff;
+  opacity: 1;
+}
+
+/* Section navigation should read as an icon control, not a text breadcrumb. */
+.back-link {
+  width: 38px;
+  height: 38px;
+  display: inline-grid;
+  place-items: center;
+  margin-bottom: 26px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #666570;
+  box-shadow: var(--shadow-1);
+  font-size: 0;
+  transition: transform 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.back-link::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-left: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateX(2px) rotate(45deg);
+}
+
+.back-link:hover {
+  transform: translateY(-1px);
+  border-color: #cfcedb;
+  color: var(--accent);
+  box-shadow: var(--shadow-2);
+}
+
+/* A separate action column keeps quick changes distinct from opening flag details. */
+.flags-table__head,
+.flag-row {
+  grid-template-columns: minmax(220px, 1.75fr) 110px 150px minmax(120px, 0.9fr) 92px 44px;
+  gap: 18px;
+}
+
+.flag-row {
+  position: relative;
+}
+
+.flag-row__open {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  border-radius: 0 0 15px 15px;
+}
+
+.flag-row__open:focus-visible {
+  outline: 3px solid rgba(91, 91, 214, 0.26);
+  outline-offset: -4px;
+}
+
+.flag-row > :not(.flag-row__open) {
+  position: relative;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.flag-row__identity {
+  display: grid;
+  gap: 5px;
+}
+
+.flag-quick-action {
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid #d9d7e4;
+  border-radius: 9px;
+  background: #fff;
+  color: #5a5964;
+  box-shadow: none;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  pointer-events: auto !important;
+  transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
+}
+
+.flag-quick-action:hover:not(:disabled) {
+  border-color: #c5c3d4;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.flag-quick-action:disabled {
+  cursor: default;
+  opacity: 0.62;
+}
+
+/* Keep the row affordance perfectly centered using absolute geometry. */
+.row-arrow {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  display: block;
+  align-self: center;
+  justify-self: center;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0;
+}
+
+.row-arrow::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  border-top: 2px solid currentColor;
+  border-right: 2px solid currentColor;
+  transform: translate(-65%, -50%) rotate(45deg);
+}
+
+@media (max-width: 900px) {
+  .flags-table__head,
+  .flag-row {
+    grid-template-columns: minmax(190px, 1.5fr) 100px 130px minmax(110px, 0.8fr) 86px 38px;
+    gap: 12px;
+  }
+}
+
+@media (max-width: 700px) {
+  .flag-row {
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+  }
+
+  .flag-row__identity {
+    grid-column: 1 / -1;
+  }
+
+  .flag-row .status-dot {
+    grid-column: 1;
+  }
+
+  .flag-row .rollout {
+    grid-column: 1 / -1;
+  }
+
+  .flag-row code {
+    display: none;
+  }
+
+  .flag-quick-action {
+    grid-column: 1;
+    width: fit-content;
+  }
+
+  .row-arrow {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}

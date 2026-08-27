@@ -44,6 +44,75 @@ public sealed class FlagChangeAuditTests(ReleaseGateApiFactory factory)
     }
 
     [Fact]
+    public async Task Change_history_returns_requested_page_and_pagination_metadata()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await CreateProjectAndFlag("history-pagination-project");
+
+        for (var rolloutPercentage = 1; rolloutPercentage <= 12; rolloutPercentage++)
+        {
+            using var updateRequest = CreateUpdateRequest(
+                "/api/projects/history-pagination-project/flags/new-checkout/environments/staging",
+                true,
+                rolloutPercentage);
+
+            var update = await _operatorClient.SendAsync(updateRequest, cancellationToken);
+            Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        }
+
+        var firstPage = await _operatorClient.GetFromJsonAsync<FlagChangeHistoryResponse>(
+            "/api/projects/history-pagination-project/flags/new-checkout/change-history?page=1&pageSize=10",
+            cancellationToken);
+
+        Assert.NotNull(firstPage);
+        Assert.Equal(12, firstPage.TotalCount);
+        Assert.Equal(1, firstPage.Page);
+        Assert.Equal(10, firstPage.PageSize);
+        Assert.Equal(2, firstPage.TotalPages);
+        Assert.Equal(10, firstPage.Items.Count);
+
+        var secondPage = await _operatorClient.GetFromJsonAsync<FlagChangeHistoryResponse>(
+            "/api/projects/history-pagination-project/flags/new-checkout/change-history?page=2&pageSize=10",
+            cancellationToken);
+
+        Assert.NotNull(secondPage);
+        Assert.Equal(12, secondPage.TotalCount);
+        Assert.Equal(2, secondPage.Page);
+        Assert.Equal(10, secondPage.PageSize);
+        Assert.Equal(2, secondPage.TotalPages);
+        Assert.Equal(2, secondPage.Items.Count);
+
+        var firstPageIds = firstPage.Items.Select(item => item.Id).ToHashSet();
+        Assert.All(secondPage.Items, item => Assert.DoesNotContain(item.Id, firstPageIds));
+    }
+
+    [Fact]
+    public async Task Change_history_normalizes_invalid_page_values()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await CreateProjectAndFlag("history-normalization-project");
+
+        using var updateRequest = CreateUpdateRequest(
+            "/api/projects/history-normalization-project/flags/new-checkout/environments/staging",
+            true,
+            35);
+
+        var update = await _operatorClient.SendAsync(updateRequest, cancellationToken);
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+
+        var history = await _operatorClient.GetFromJsonAsync<FlagChangeHistoryResponse>(
+            "/api/projects/history-normalization-project/flags/new-checkout/change-history?page=0&pageSize=0",
+            cancellationToken);
+
+        Assert.NotNull(history);
+        Assert.Equal(1, history.Page);
+        Assert.Equal(10, history.PageSize);
+        Assert.Equal(1, history.TotalCount);
+        Assert.Equal(1, history.TotalPages);
+        Assert.Single(history.Items);
+    }
+
+    [Fact]
     public async Task Production_change_is_pending_until_it_is_approved()
     {
         var cancellationToken = TestContext.Current.CancellationToken;

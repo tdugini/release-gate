@@ -3,6 +3,7 @@ import type {
   FeatureFlagDetail,
   FeatureFlagSummary,
   FlagChange,
+  FlagChangeHistory,
   FlagEnvironment,
   ProjectDetail,
   ProjectSummary,
@@ -88,6 +89,13 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(input),
       }),
+    update: (projectKey: string, input: { name: string; description?: string }) =>
+      request<ProjectDetail>(`/api/projects/${projectKey}`, {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      }),
+    delete: (projectKey: string) =>
+      request<void>(`/api/projects/${projectKey}`, { method: 'DELETE' }),
   },
   flags: {
     list: (projectKey: string, environment: string) =>
@@ -102,6 +110,21 @@ export const api = {
         `/api/projects/${projectKey}/flags/${flagKey}/changes${query}`,
       );
     },
+    changeHistory: (
+      projectKey: string,
+      flagKey: string,
+      options: { page?: number; pageSize?: number; environment?: string } = {},
+    ) => {
+      const params = new URLSearchParams({
+        page: String(options.page ?? 1),
+        pageSize: String(options.pageSize ?? 10),
+      });
+      if (options.environment) params.set('environment', options.environment);
+
+      return request<FlagChangeHistory>(
+        `/api/projects/${projectKey}/flags/${flagKey}/change-history?${params.toString()}`,
+      );
+    },
     create: (
       projectKey: string,
       input: { name: string; key: string; description?: string },
@@ -113,6 +136,17 @@ export const api = {
           body: JSON.stringify(input),
         },
       ),
+    update: (
+      projectKey: string,
+      flagKey: string,
+      input: { name: string; description?: string },
+    ) =>
+      request<FeatureFlagDetail>(`/api/projects/${projectKey}/flags/${flagKey}`, {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      }),
+    delete: (projectKey: string, flagKey: string) =>
+      request<void>(`/api/projects/${projectKey}/flags/${flagKey}`, { method: 'DELETE' }),
     updateEnvironment: (
       projectKey: string,
       flagKey: string,

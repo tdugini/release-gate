@@ -68,3 +68,11 @@ export type FlagChange = {
   reviewedBy: string | null;
   reviewedAt: string | null;
 };
+
+export type FlagChangeHistory = {
+  items: FlagChange[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+};
