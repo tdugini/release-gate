@@ -6,24 +6,24 @@ It is designed around a real internal-platform problem: teams need a safe way to
 
 **ASP.NET Core · React · TypeScript · PostgreSQL · Entity Framework Core · Docker**
 
-## Current milestone — v0.6
+## Current milestone — v0.7
 
-**Authenticated control plane & RBAC.**
+**Versioned database migrations.**
 
-ReleaseGate now separates application-facing runtime delivery from authenticated control-plane operations. Control-plane users authenticate with server-configured bearer tokens and receive explicit roles that determine which management and review actions they may perform.
+ReleaseGate now manages PostgreSQL schema evolution through explicit EF Core migrations instead of relying on `EnsureCreated` during local development.
 
 ReleaseGate now provides:
 
-- authenticated access to project, flag and audit APIs;
-- `operator` and `reviewer` control-plane roles;
-- operator-only project, flag and environment mutations;
-- reviewer-only production approval and rejection actions;
-- audit actors derived from authenticated identities instead of caller-provided headers;
-- self-review protection for production changes;
-- an authenticated React control plane that displays the current identity and assigned roles;
-- a runtime snapshot boundary that remains application-facing and independent from control-plane authentication.
+- an initial migration for the existing ReleaseGate schema;
+- a versioned EF Core model snapshot;
+- a repository-pinned `dotnet-ef` CLI tool;
+- automatic `MigrateAsync()` startup in local development;
+- safe baselining of complete legacy databases created before v0.7;
+- refusal to auto-baseline partial or ambiguous legacy schemas;
+- CI verification that the EF model snapshot is current;
+- CI application of migrations against a real empty PostgreSQL database.
 
-The development setup intentionally uses static server-configured bearer tokens rather than introducing a placeholder identity provider. The authorization model is implemented end to end and can later be connected to a real OIDC/OAuth provider without changing the domain permissions.
+The legacy upgrade path was manually verified by creating a database with the v0.6 `EnsureCreated` bootstrap, switching to v0.7 without deleting the PostgreSQL volume, and confirming that the existing projects and flags remained available while `20260827090000_InitialSchema` was recorded in `__EFMigrationsHistory` with EF Core product version `10.0.4`.
 
 ### Milestone progress
 
@@ -32,8 +32,11 @@ The development setup intentionally uses static server-configured bearer tokens 
 - **v0.3 — Runtime evaluation:** deterministic subject bucketing and percentage rollout evaluation endpoint.
 - **v0.4 — Audit & approvals:** persisted change history, control-plane audit view and approval/rejection workflow for production changes.
 - **v0.5 — SDK & updates:** runtime snapshot delivery, JavaScript/TypeScript SDK, automatic refresh and conditional revalidation.
-- **v0.6 — Authentication & RBAC:** authenticated control plane, operator/reviewer roles, authenticated audit actors and self-review protection. **Current.**
-- **v1.0 — Product polish:** migrations, deployment, operational documentation and portfolio-ready demo.
+- **v0.6 — Authentication & RBAC:** authenticated control plane, operator/reviewer roles, authenticated audit actors and self-review protection.
+- **v0.7 — EF Core migrations:** versioned schema evolution, legacy database baselining and migration verification in CI. **Current.**
+- **v0.8 — Runtime security:** production-grade machine-to-machine access for runtime configuration delivery.
+- **v0.9 — SDK & deployment:** SDK publishing/versioning and production-like deployment.
+- **v1.0 — Product polish:** operational documentation, portfolio-ready demo and final visual overhaul.
 
 ## Product model
 
@@ -102,6 +105,8 @@ dotnet run --project apps/api/ReleaseGate.Api
 
 The development API listens on `http://localhost:5080`.
 
+During development the API applies pending EF Core migrations automatically before seeding development data. Existing pre-v0.7 local databases with the complete legacy schema are baselined once and then managed through normal migration history.
+
 Development control-plane identities are configured in `apps/api/ReleaseGate.Api/appsettings.Development.json`:
 
 - operator token: `releasegate-local-operator`
@@ -128,7 +133,27 @@ npm run typecheck
 npm test
 ```
 
-> The project currently uses `EnsureCreated` during local development. When a milestone introduces a new persisted entity, an existing local PostgreSQL volume may need to be recreated. Explicit EF migrations are planned before hosted deployment.
+### 5. Work with EF Core migrations
+
+Restore the repository-pinned EF tool:
+
+```bash
+dotnet tool restore
+```
+
+Check whether the current model requires a migration:
+
+```bash
+dotnet ef migrations has-pending-model-changes --project apps/api/ReleaseGate.Api
+```
+
+Apply all pending migrations explicitly when needed:
+
+```bash
+dotnet ef database update --project apps/api/ReleaseGate.Api
+```
+
+New persisted model changes should be accompanied by a committed migration and an updated model snapshot.
 
 ## API examples
 
@@ -268,6 +293,7 @@ The project is built around several constraints:
 
 - explicit authenticated control-plane and application-facing runtime boundaries;
 - role-based authorization for management and production review operations;
+- versioned and repeatable database schema evolution;
 - environment-safe configuration;
 - deterministic percentage rollout evaluation;
 - efficient snapshot-based SDK consumption;
@@ -277,6 +303,6 @@ The project is built around several constraints:
 - auditable production configuration changes with authenticated actors;
 - separation of duties for sensitive production changes.
 
-Explicit EF migrations, real identity-provider integration, SDK publishing/versioning and production deployment remain future hardening steps.
+Production-grade runtime credentials, real identity-provider integration, SDK publishing/versioning and production deployment remain future hardening steps.
 
 See `ARCHITECTURE.md` for the current decisions and planned boundaries.

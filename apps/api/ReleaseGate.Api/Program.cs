@@ -45,7 +45,9 @@ if (app.Environment.IsDevelopment())
 
     await using var scope = app.Services.CreateAsyncScope();
     var db = scope.ServiceProvider.GetRequiredService<ReleaseGateDbContext>();
-    await db.Database.EnsureCreatedAsync();
+
+    await DatabaseMigrationBootstrapper.PrepareLegacyDatabaseAsync(db);
+    await db.Database.MigrateAsync();
     await DevelopmentDataSeeder.SeedAsync(db);
 }
 
