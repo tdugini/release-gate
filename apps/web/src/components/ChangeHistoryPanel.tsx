@@ -96,88 +96,116 @@ export function ChangeHistoryPanel({
 
       {history && history.items.length > 0 && (
         <>
-          <div className="change-history__list">
-            {history.items.map((change) => {
-              const isReviewing = reviewingChangeId === change.id;
-              const requestedByCurrentUser =
-                change.requestedBy.toLowerCase() === identity.subject.toLowerCase();
-              const canReviewChange = canReview && !requestedByCurrentUser;
+          <div className="change-history__table-wrap">
+            <table className="change-history__table">
+              <thead>
+                <tr>
+                  <th scope="col">Environment</th>
+                  <th scope="col">Change</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Requested</th>
+                  <th scope="col">Reviewed</th>
+                  <th scope="col" className="change-history__actions-heading">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.items.map((change) => {
+                  const isReviewing = reviewingChangeId === change.id;
+                  const requestedByCurrentUser =
+                    change.requestedBy.toLowerCase() === identity.subject.toLowerCase();
+                  const canReviewChange = canReview && !requestedByCurrentUser;
 
-              return (
-                <article className="change-history__item" key={change.id}>
-                  <div className="change-history__meta">
-                    <strong>{change.environment}</strong>
-                    <span className={`change-status change-status--${change.status}`}>
-                      {change.status}
-                    </span>
-                  </div>
+                  return (
+                    <tr className="change-history__row" key={change.id}>
+                      <td>
+                        <strong className="change-history__environment">
+                          {change.environment}
+                        </strong>
+                      </td>
+                      <td>
+                        <div className="change-history__transition">
+                          <span>
+                            {formatFlagState(
+                              change.previousEnabled,
+                              change.previousRolloutPercentage,
+                            )}
+                          </span>
+                          <DirectionalIcon
+                            direction="arrow-right"
+                            className="change-history__transition-arrow"
+                          />
+                          <strong>
+                            {formatFlagState(
+                              change.requestedEnabled,
+                              change.requestedRolloutPercentage,
+                            )}
+                          </strong>
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`change-status change-status--${change.status}`}>
+                          {change.status}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="change-history__person">
+                          <strong>{change.requestedBy}</strong>
+                          <time dateTime={change.requestedAt}>
+                            {new Date(change.requestedAt).toLocaleString()}
+                          </time>
+                        </div>
+                      </td>
+                      <td>
+                        {change.reviewedBy && change.reviewedAt ? (
+                          <div className="change-history__person">
+                            <strong>{change.reviewedBy}</strong>
+                            <time dateTime={change.reviewedAt}>
+                              {new Date(change.reviewedAt).toLocaleString()}
+                            </time>
+                          </div>
+                        ) : (
+                          <span className="change-history__empty-value">—</span>
+                        )}
+                      </td>
+                      <td className="change-history__actions-cell">
+                        {change.status === 'pending' && canReviewChange && (
+                          <div className="change-history__actions">
+                            <button
+                              className="button button--danger"
+                              type="button"
+                              disabled={isReviewing}
+                              onClick={() => void reviewChange(change.id, 'reject')}
+                            >
+                              Reject
+                            </button>
+                            <button
+                              className="button button--primary"
+                              type="button"
+                              disabled={isReviewing}
+                              onClick={() => void reviewChange(change.id, 'approve')}
+                            >
+                              {isReviewing ? 'Reviewing…' : 'Approve'}
+                            </button>
+                          </div>
+                        )}
 
-                  <div className="change-history__transition">
-                    <span>
-                      {formatFlagState(
-                        change.previousEnabled,
-                        change.previousRolloutPercentage,
-                      )}
-                    </span>
-                    <DirectionalIcon
-                      direction="arrow-right"
-                      className="change-history__transition-arrow"
-                    />
-                    <strong>
-                      {formatFlagState(
-                        change.requestedEnabled,
-                        change.requestedRolloutPercentage,
-                      )}
-                    </strong>
-                  </div>
+                        {change.status === 'pending' && !canReviewChange && (
+                          <div className="change-history__permission-note">
+                            {requestedByCurrentUser
+                              ? 'Another reviewer must review this production change.'
+                              : 'Reviewer role required to approve or reject this production change.'}
+                          </div>
+                        )}
 
-                  <footer>
-                    <span>Requested by {change.requestedBy}</span>
-                    <time dateTime={change.requestedAt}>
-                      {new Date(change.requestedAt).toLocaleString()}
-                    </time>
-                  </footer>
-
-                  {change.reviewedBy && change.reviewedAt && (
-                    <div className="change-history__reviewed">
-                      <span>Reviewed by {change.reviewedBy}</span>
-                      <time dateTime={change.reviewedAt}>
-                        {new Date(change.reviewedAt).toLocaleString()}
-                      </time>
-                    </div>
-                  )}
-
-                  {change.status === 'pending' && canReviewChange && (
-                    <div className="change-history__actions">
-                      <button
-                        className="button button--danger"
-                        type="button"
-                        disabled={isReviewing}
-                        onClick={() => void reviewChange(change.id, 'reject')}
-                      >
-                        Reject
-                      </button>
-                      <button
-                        className="button button--primary"
-                        type="button"
-                        disabled={isReviewing}
-                        onClick={() => void reviewChange(change.id, 'approve')}
-                      >
-                        {isReviewing ? 'Reviewing…' : 'Approve'}
-                      </button>
-                    </div>
-                  )}
-
-                  {change.status === 'pending' && !canReviewChange && (
-                    <div className="change-history__permission-note">
-                      {requestedByCurrentUser
-                        ? 'Another reviewer must review this production change.'
-                        : 'Reviewer role required to approve or reject this production change.'}
-                    </div>
-                  )}
-                </article>
-              );
-            })}
+                        {change.status !== 'pending' && (
+                          <span className="change-history__empty-value">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
 
           <footer className="change-history__pagination" aria-label="Change history pagination">
