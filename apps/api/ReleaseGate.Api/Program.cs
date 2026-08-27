@@ -39,6 +39,7 @@ app.MapGet("/health", () => Results.Ok(new
 
 app.MapProjectEndpoints();
 app.MapFeatureFlagEndpoints();
+app.MapRuntimeEndpoints();
 
 app.Run();
 
