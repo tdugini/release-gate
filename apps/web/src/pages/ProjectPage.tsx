@@ -38,6 +38,7 @@ export function ProjectPage() {
     () => new Set(),
   );
   const [manageOpen, setManageOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [editName, setEditName] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [manageError, setManageError] = useState<Error | null>(null);
@@ -79,6 +80,15 @@ export function ProjectPage() {
 
   const closeManageDialog = () => {
     if (!managing) setManageOpen(false);
+  };
+
+  const openDeleteConfirmation = () => {
+    setManageOpen(false);
+    setDeleteConfirmOpen(true);
+  };
+
+  const closeDeleteConfirmation = () => {
+    if (!managing) setDeleteConfirmOpen(false);
   };
 
   const selectEnvironment = (nextEnvironment: string) => {
@@ -134,7 +144,6 @@ export function ProjectPage() {
 
   const deleteProject = async () => {
     if (!projectRequest.data) return;
-    if (!window.confirm(`Delete project "${projectRequest.data.name}" and all of its flags? This cannot be undone.`)) return;
 
     setManaging(true);
     setManageError(null);
@@ -145,6 +154,8 @@ export function ProjectPage() {
     } catch (caught) {
       const nextError = caught instanceof Error ? caught : new Error('Could not delete project.');
       setManageError(nextError);
+      setDeleteConfirmOpen(false);
+      setManageOpen(true);
       showToast(nextError.message, 'error');
       setManaging(false);
     }
@@ -431,7 +442,7 @@ export function ProjectPage() {
               <strong>Delete project</strong>
               <small>Deletes the project, environments, flags and audit history.</small>
             </div>
-            <button className="button button--danger" type="button" disabled={managing} onClick={() => void deleteProject()}>
+            <button className="button button--danger" type="button" disabled={managing} onClick={openDeleteConfirmation}>
               Delete project
             </button>
           </div>
@@ -442,6 +453,31 @@ export function ProjectPage() {
             </button>
           </div>
         </form>
+      </Dialog>
+
+      <Dialog
+        open={canOperate && deleteConfirmOpen}
+        title="Delete project?"
+        description={`This permanently removes “${project.name}” and everything inside it.`}
+        onClose={closeDeleteConfirmation}
+      >
+        <div className="delete-confirmation">
+          <div className="delete-confirmation__warning">
+            <span className="delete-confirmation__icon" aria-hidden="true">!</span>
+            <div>
+              <strong>This action cannot be undone.</strong>
+              <p>All environments, feature flags and audit history for <code>{project.key}</code> will be deleted.</p>
+            </div>
+          </div>
+          <div className="form-actions delete-confirmation__actions">
+            <button className="button" type="button" onClick={closeDeleteConfirmation} disabled={managing}>
+              Keep project
+            </button>
+            <button className="button button--danger" type="button" onClick={() => void deleteProject()} disabled={managing}>
+              {managing ? 'Deleting…' : 'Delete project'}
+            </button>
+          </div>
+        </div>
       </Dialog>
     </div>
   );
