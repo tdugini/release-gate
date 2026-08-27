@@ -12,6 +12,9 @@ export function AppShell() {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join('') || 'RG';
+  const subjectMatchesRole = identity.roles.some(
+    (role) => role.toLowerCase() === identity.subject.toLowerCase(),
+  );
 
   const closeMobileMenu = () => {
     if (mobileMenuRef.current) mobileMenuRef.current.open = false;
@@ -51,7 +54,7 @@ export function AppShell() {
               </span>
               <div>
                 <strong>{identity.displayName}</strong>
-                <small>{identity.subject}</small>
+                {!subjectMatchesRole && <small>{identity.subject}</small>}
               </div>
             </div>
 
@@ -90,7 +93,7 @@ export function AppShell() {
           <div className="control-plane-user">
             <div>
               <strong>{identity.displayName}</strong>
-              <small>{identity.subject}</small>
+              {!subjectMatchesRole && <small>{identity.subject}</small>}
             </div>
             <div className="control-plane-user__roles" aria-label="Assigned roles">
               {identity.roles.map((role) => <span key={role}>{role}</span>)}
