@@ -18,6 +18,7 @@ type AuthContextValue = {
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+const DEMO_ACCESS_TOKEN = import.meta.env.VITE_DEMO_ACCESS_TOKEN?.trim();
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const [identity, setIdentity] = useState<ControlPlaneIdentity | null>(null);
@@ -28,9 +29,15 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     const existingToken = getAccessToken();
-    if (!existingToken) {
+    const initialToken = existingToken || DEMO_ACCESS_TOKEN;
+
+    if (!initialToken) {
       setChecking(false);
       return;
+    }
+
+    if (!existingToken && DEMO_ACCESS_TOKEN) {
+      setAccessToken(DEMO_ACCESS_TOKEN);
     }
 
     api.auth.me()
@@ -46,14 +53,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setError(null);
   }, []);
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const nextToken = token.trim();
-    if (!nextToken) return;
-
+  const authenticate = async (accessToken: string) => {
     setSubmitting(true);
     setError(null);
-    setAccessToken(nextToken);
+    setAccessToken(accessToken);
 
     try {
       setIdentity(await api.auth.me());
@@ -70,6 +73,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const nextToken = token.trim();
+    if (!nextToken) return;
+    await authenticate(nextToken);
   };
 
   const value = useMemo<AuthContextValue | null>(() => {
@@ -103,8 +113,21 @@ export function AuthProvider({ children }: PropsWithChildren) {
           <p className="eyebrow">Release control plane</p>
           <h1 id="access-title">Access ReleaseGate</h1>
           <p>
-            Enter a control-plane bearer token configured for this ReleaseGate deployment.
+            {DEMO_ACCESS_TOKEN
+              ? 'Explore the portfolio deployment in read-only mode, or use a configured control-plane token.'
+              : 'Enter a control-plane bearer token configured for this ReleaseGate deployment.'}
           </p>
+
+          {DEMO_ACCESS_TOKEN && (
+            <button
+              className="button button--primary"
+              type="button"
+              disabled={submitting}
+              onClick={() => void authenticate(DEMO_ACCESS_TOKEN)}
+            >
+              {submitting ? 'Opening demo…' : 'Open read-only demo'}
+            </button>
+          )}
 
           <form className="access-form" onSubmit={handleSubmit}>
             <div className="field">
@@ -116,15 +139,15 @@ export function AuthProvider({ children }: PropsWithChildren) {
                 onChange={(event) => setToken(event.target.value)}
                 placeholder="releasegate-…"
                 autoComplete="off"
-                autoFocus
+                autoFocus={!DEMO_ACCESS_TOKEN}
                 required
               />
             </div>
 
             {error && <div className="form-error" role="alert">{error}</div>}
 
-            <button className="button button--primary" type="submit" disabled={submitting}>
-              {submitting ? 'Authenticating…' : 'Open control plane'}
+            <button className="button" type="submit" disabled={submitting}>
+              {submitting ? 'Authenticating…' : 'Use access token'}
             </button>
           </form>
         </section>
