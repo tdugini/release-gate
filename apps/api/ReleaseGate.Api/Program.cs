@@ -12,6 +12,9 @@ builder.Services.AddDbContext<ReleaseGateDbContext>(options =>
 
 builder.Services.Configure<ControlPlaneAuthOptions>(
     builder.Configuration.GetSection(ControlPlaneAuthOptions.SectionName));
+builder.Services.Configure<RuntimeAccessOptions>(
+    builder.Configuration.GetSection(RuntimeAccessOptions.SectionName));
+builder.Services.AddSingleton<RuntimeApiKeyValidator>();
 
 builder.Services
     .AddAuthentication(ControlPlaneAuthenticationDefaults.Scheme)
