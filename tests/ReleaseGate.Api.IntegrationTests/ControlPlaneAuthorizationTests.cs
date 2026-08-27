@@ -70,24 +70,28 @@ public sealed class ControlPlaneAuthorizationTests(ReleaseGateApiFactory factory
     }
 
     [Fact]
-    public async Task Runtime_snapshot_remains_outside_control_plane_authentication()
+    public async Task Runtime_snapshot_uses_runtime_credentials_instead_of_control_plane_authentication()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
         using var operatorClient = TestClients.CreateOperator(factory);
-        await CreateProjectAndFlag(operatorClient, "public-runtime-project", cancellationToken);
+        await CreateProjectAndFlag(operatorClient, "runtime-boundary-project", cancellationToken);
 
         var update = await operatorClient.PatchAsJsonAsync(
-            "/api/projects/public-runtime-project/flags/new-checkout/environments/development",
+            "/api/projects/runtime-boundary-project/flags/new-checkout/environments/development",
             new UpdateFlagEnvironmentRequest(true, 100),
             cancellationToken);
         Assert.Equal(HttpStatusCode.OK, update.StatusCode);
 
-        using var anonymousClient = factory.CreateClient();
-        var response = await anonymousClient.GetAsync(
-            "/api/runtime/projects/public-runtime-project/environments/development/snapshot?subjectKey=customer-1",
-            cancellationToken);
+        const string snapshotUrl =
+            "/api/runtime/projects/runtime-boundary-project/environments/development/snapshot?subjectKey=customer-1";
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var controlPlaneResponse = await operatorClient.GetAsync(snapshotUrl, cancellationToken);
+        Assert.Equal(HttpStatusCode.Unauthorized, controlPlaneResponse.StatusCode);
+
+        using var runtimeClient = TestClients.CreateRuntime(factory);
+        var runtimeResponse = await runtimeClient.GetAsync(snapshotUrl, cancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, runtimeResponse.StatusCode);
     }
 
     private static async Task<FlagChangeResponse> CreatePendingProductionChange(

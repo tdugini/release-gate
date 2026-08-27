@@ -8,7 +8,8 @@ namespace ReleaseGate.Api.IntegrationTests;
 public sealed class RuntimeSnapshotTests(ReleaseGateApiFactory factory)
     : IClassFixture<ReleaseGateApiFactory>
 {
-    private readonly HttpClient _client = TestClients.CreateOperator(factory);
+    private readonly HttpClient _controlPlaneClient = TestClients.CreateOperator(factory);
+    private readonly HttpClient _runtimeClient = TestClients.CreateRuntime(factory);
 
     [Fact]
     public async Task Snapshot_returns_all_flags_evaluated_for_the_subject()
@@ -33,7 +34,7 @@ public sealed class RuntimeSnapshotTests(ReleaseGateApiFactory factory)
 
         const string subjectKey = "customer-1042";
 
-        var evaluation = await _client.PostAsJsonAsync(
+        var evaluation = await _controlPlaneClient.PostAsJsonAsync(
             "/api/projects/runtime-snapshot-project/flags/partial-rollout/evaluate",
             new EvaluateFeatureFlagRequest("development", subjectKey),
             cancellationToken);
@@ -42,7 +43,7 @@ public sealed class RuntimeSnapshotTests(ReleaseGateApiFactory factory)
         var expectedPartial = await evaluation.Content.ReadFromJsonAsync<EvaluateFeatureFlagResponse>(cancellationToken);
         Assert.NotNull(expectedPartial);
 
-        var response = await _client.GetAsync(
+        var response = await _runtimeClient.GetAsync(
             $"/api/runtime/projects/runtime-snapshot-project/environments/development/snapshot?subjectKey={subjectKey}",
             cancellationToken);
 
@@ -85,7 +86,7 @@ public sealed class RuntimeSnapshotTests(ReleaseGateApiFactory factory)
         await CreateFlag(projectKey, "New checkout", flagKey, cancellationToken);
         await UpdateDevelopmentFlag(projectKey, flagKey, true, 100, cancellationToken);
 
-        var firstResponse = await _client.GetAsync(snapshotUrl, cancellationToken);
+        var firstResponse = await _runtimeClient.GetAsync(snapshotUrl, cancellationToken);
         Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
         Assert.True(firstResponse.Headers.TryGetValues("ETag", out var firstEtagValues));
         var firstEtag = Assert.Single(firstEtagValues);
@@ -93,7 +94,7 @@ public sealed class RuntimeSnapshotTests(ReleaseGateApiFactory factory)
         using var unchangedRequest = new HttpRequestMessage(HttpMethod.Get, snapshotUrl);
         unchangedRequest.Headers.TryAddWithoutValidation("If-None-Match", firstEtag);
 
-        var unchangedResponse = await _client.SendAsync(unchangedRequest, cancellationToken);
+        var unchangedResponse = await _runtimeClient.SendAsync(unchangedRequest, cancellationToken);
 
         Assert.Equal(HttpStatusCode.NotModified, unchangedResponse.StatusCode);
         Assert.True(unchangedResponse.Headers.TryGetValues("ETag", out var unchangedEtagValues));
@@ -105,7 +106,7 @@ public sealed class RuntimeSnapshotTests(ReleaseGateApiFactory factory)
         using var changedRequest = new HttpRequestMessage(HttpMethod.Get, snapshotUrl);
         changedRequest.Headers.TryAddWithoutValidation("If-None-Match", firstEtag);
 
-        var changedResponse = await _client.SendAsync(changedRequest, cancellationToken);
+        var changedResponse = await _runtimeClient.SendAsync(changedRequest, cancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, changedResponse.StatusCode);
         Assert.True(changedResponse.Headers.TryGetValues("ETag", out var changedEtagValues));
@@ -122,7 +123,7 @@ public sealed class RuntimeSnapshotTests(ReleaseGateApiFactory factory)
         var cancellationToken = TestContext.Current.CancellationToken;
         await CreateProject("runtime-validation-project", cancellationToken);
 
-        var response = await _client.GetAsync(
+        var response = await _runtimeClient.GetAsync(
             "/api/runtime/projects/runtime-validation-project/environments/development/snapshot",
             cancellationToken);
 
@@ -135,7 +136,7 @@ public sealed class RuntimeSnapshotTests(ReleaseGateApiFactory factory)
         var cancellationToken = TestContext.Current.CancellationToken;
         await CreateProject("runtime-environment-project", cancellationToken);
 
-        var response = await _client.GetAsync(
+        var response = await _runtimeClient.GetAsync(
             "/api/runtime/projects/runtime-environment-project/environments/unknown/snapshot?subjectKey=customer-1",
             cancellationToken);
 
@@ -144,7 +145,7 @@ public sealed class RuntimeSnapshotTests(ReleaseGateApiFactory factory)
 
     private async Task CreateProject(string projectKey, CancellationToken cancellationToken)
     {
-        var response = await _client.PostAsJsonAsync(
+        var response = await _controlPlaneClient.PostAsJsonAsync(
             "/api/projects",
             new CreateProjectRequest("Runtime project", projectKey, null),
             cancellationToken);
@@ -158,7 +159,7 @@ public sealed class RuntimeSnapshotTests(ReleaseGateApiFactory factory)
         string flagKey,
         CancellationToken cancellationToken)
     {
-        var response = await _client.PostAsJsonAsync(
+        var response = await _controlPlaneClient.PostAsJsonAsync(
             $"/api/projects/{projectKey}/flags",
             new CreateFeatureFlagRequest(name, flagKey, null),
             cancellationToken);
@@ -180,7 +181,7 @@ public sealed class RuntimeSnapshotTests(ReleaseGateApiFactory factory)
             Content = JsonContent.Create(new UpdateFlagEnvironmentRequest(enabled, rolloutPercentage))
         };
 
-        var response = await _client.SendAsync(request, cancellationToken);
+        var response = await _controlPlaneClient.SendAsync(request, cancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 }

@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ReleaseGate.Api.Contracts;
 using ReleaseGate.Api.Infrastructure;
 using ReleaseGate.Api.Persistence;
+using ReleaseGate.Api.Security;
 
 namespace ReleaseGate.Api.Endpoints;
 
@@ -26,8 +27,22 @@ public static class RuntimeEndpoints
         string? subjectKey,
         HttpContext httpContext,
         ReleaseGateDbContext db,
+        RuntimeApiKeyValidator runtimeApiKeyValidator,
         CancellationToken cancellationToken)
     {
+        var providedApiKey = httpContext.Request.Headers[RuntimeApiKeyValidator.HeaderName].ToString();
+        var credential = runtimeApiKeyValidator.FindCredential(providedApiKey);
+
+        if (credential is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (!RuntimeApiKeyValidator.CanAccessProject(credential, projectKey))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
         var normalizedEnvironmentKey = environmentKey.Trim().ToLowerInvariant();
         var normalizedSubjectKey = subjectKey?.Trim() ?? string.Empty;
 

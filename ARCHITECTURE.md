@@ -16,9 +16,13 @@ PostgreSQL is the system of record.
 
 The control plane and runtime API deliberately expose different representations and security concerns. Operators need configuration, rollout, audit and review detail. Applications only need the final evaluated value of each flag for their current subject.
 
-## Authentication and authorization boundary
+## Authentication and authorization boundaries
 
-Control-plane routes require bearer authentication. The current implementation uses server-configured static tokens because v0.6 is focused on the authorization model and control-plane boundary rather than introducing a placeholder external identity provider.
+ReleaseGate treats human control-plane access and application runtime access as separate trust boundaries.
+
+### Control plane
+
+Control-plane routes require bearer authentication. The current implementation uses server-configured static tokens because the authorization model and control-plane boundary are implemented independently from any external identity provider.
 
 An authenticated control-plane identity contains:
 
@@ -37,7 +41,21 @@ Production review also enforces separation of duties: the identity that requeste
 
 The React control plane resolves the current identity through `/api/auth/me`, persists the development access token locally, exposes assigned roles in the shell, and removes or disables actions the current role cannot perform. The API remains the source of truth for authorization; UI gating is only a usability layer.
 
-The runtime snapshot endpoint is intentionally outside control-plane authentication. It is an application-consumption boundary and will eventually need its own production-grade machine-to-machine access strategy rather than inheriting human control-plane roles.
+### Runtime access
+
+Runtime snapshot requests use a dedicated machine-to-machine API key supplied through `X-ReleaseGate-Key`.
+
+Runtime credentials are configured separately from control-plane bearer tokens and contain:
+
+- the secret API key;
+- a client identifier for configuration/audit purposes;
+- one or more allowed project keys, with `*` supported for wildcard project access.
+
+The runtime validator compares API keys using a constant-time byte comparison. Missing or unknown credentials produce `401 Unauthorized`; a valid credential that is not allowed to access the requested project produces `403 Forbidden`.
+
+A control-plane token does not grant runtime access, and a runtime key does not grant control-plane access. This prevents application credentials from inheriting human administrative permissions and keeps machine-to-machine access independently replaceable later.
+
+The current keys are configuration-backed development credentials. A hosted deployment can move the secret material into environment variables or a secret manager without changing the runtime authorization contract.
 
 ## Flag identity vs environment state
 
@@ -77,6 +95,7 @@ The single-flag evaluation endpoint remains useful for authenticated control-pla
 
 ```text
 GET /api/runtime/projects/{projectKey}/environments/{environmentKey}/snapshot?subjectKey={subjectKey}
+X-ReleaseGate-Key: <runtime-api-key>
 ```
 
 The runtime snapshot contains only evaluated flag keys and boolean values. Rollout percentages, buckets, audit metadata and pending production changes stay behind the control-plane boundary.
@@ -92,6 +111,8 @@ Consumers can revalidate with `If-None-Match`. When the evaluated configuration 
 ## JavaScript SDK
 
 `@releasegate/sdk-js` initializes by downloading one runtime snapshot for a subject and stores the evaluated flags in memory.
+
+The client requires a runtime `apiKey` and sends it as `X-ReleaseGate-Key` on snapshot requests. Human control-plane tokens are not part of the SDK configuration.
 
 `isEnabled(flagKey)` is a local lookup and does not make a network request. Manual `refresh()` and optional automatic polling revalidate the snapshot using its ETag. A `304` keeps the current in-memory snapshot, while a changed response atomically replaces the flag map.
 
@@ -124,12 +145,14 @@ CI also checks `dotnet ef migrations has-pending-model-changes` and applies the 
 
 ## Current hardening boundaries
 
-Authentication, role-based authorization and versioned database migrations are now implemented for the control plane and persistence layer. The next hardening steps are expected to include:
+Authentication, role-based authorization, versioned database migrations and a dedicated runtime credential boundary are now implemented.
 
-- a production-grade application credential strategy for runtime snapshot access;
-- integration with a real OIDC/OAuth identity provider while preserving the current subject/role model;
+The next hardening steps are expected to include:
+
 - SDK publishing/versioning;
-- production deployment and operational documentation;
+- production-like deployment and operational documentation;
+- integration with a real OIDC/OAuth identity provider while preserving the current subject/role model;
+- external secret storage and credential rotation for hosted runtime keys;
 - push-based or streaming configuration delivery only if polling becomes an actual product constraint.
 
 The goal remains the same: visible product behavior should be backed by a coherent end-to-end implementation rather than a broad set of stubs.
