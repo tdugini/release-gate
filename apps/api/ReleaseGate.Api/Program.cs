@@ -1,12 +1,31 @@
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using ReleaseGate.Api.Endpoints;
 using ReleaseGate.Api.Persistence;
+using ReleaseGate.Api.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
 builder.Services.AddDbContext<ReleaseGateDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("ReleaseGate")));
+
+builder.Services.Configure<ControlPlaneAuthOptions>(
+    builder.Configuration.GetSection(ControlPlaneAuthOptions.SectionName));
+
+builder.Services
+    .AddAuthentication(ControlPlaneAuthenticationDefaults.Scheme)
+    .AddScheme<AuthenticationSchemeOptions, ControlPlaneAuthenticationHandler>(
+        ControlPlaneAuthenticationDefaults.Scheme,
+        _ => { });
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(ControlPlanePolicies.Operator, policy =>
+        policy.RequireRole(ControlPlaneRoles.Operator));
+    options.AddPolicy(ControlPlanePolicies.Reviewer, policy =>
+        policy.RequireRole(ControlPlaneRoles.Reviewer));
+});
 
 builder.Services.AddCors(options =>
 {
@@ -29,6 +48,9 @@ if (app.Environment.IsDevelopment())
     await db.Database.EnsureCreatedAsync();
     await DevelopmentDataSeeder.SeedAsync(db);
 }
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapGet("/health", () => Results.Ok(new
 {
