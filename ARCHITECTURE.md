@@ -118,7 +118,7 @@ Earlier ReleaseGate versions used `EnsureCreated`, so existing local databases c
 
 This compatibility path is intentionally limited to the known pre-v0.7 schema. Once a database has been baselined, future changes use normal EF migration history.
 
-The upgrade path was manually verified using a database created by the v0.6 `EnsureCreated` bootstrap: after switching to v0.7 with the same PostgreSQL volume, existing projects and feature flags remained available and `20260827090000_InitialSchema` was present in `__EFMigrationsHistory`.
+The upgrade path was manually verified using a database created by the v0.6 `EnsureCreated` bootstrap. After switching to v0.7 while retaining the same PostgreSQL volume, the API started normally, existing projects and feature flags remained available, and `20260827090000_InitialSchema` was recorded in `__EFMigrationsHistory` with EF Core product version `10.0.4`.
 
 CI also checks `dotnet ef migrations has-pending-model-changes` and applies the committed migrations against an empty PostgreSQL service. This catches both forgotten migrations and migrations that cannot build a clean database from scratch.
 
