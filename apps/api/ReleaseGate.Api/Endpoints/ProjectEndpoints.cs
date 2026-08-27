@@ -3,6 +3,7 @@ using ReleaseGate.Api.Contracts;
 using ReleaseGate.Api.Domain;
 using ReleaseGate.Api.Infrastructure;
 using ReleaseGate.Api.Persistence;
+using ReleaseGate.Api.Security;
 
 namespace ReleaseGate.Api.Endpoints;
 
@@ -17,11 +18,14 @@ public static class ProjectEndpoints
 
     public static IEndpointRouteBuilder MapProjectEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        var group = endpoints.MapGroup("/api/projects").WithTags("Projects");
+        var group = endpoints
+            .MapGroup("/api/projects")
+            .WithTags("Projects")
+            .RequireAuthorization();
 
         group.MapGet("", GetProjects);
         group.MapGet("/{projectKey}", GetProject);
-        group.MapPost("", CreateProject);
+        group.MapPost("", CreateProject).RequireAuthorization(ControlPlanePolicies.Operator);
 
         return endpoints;
     }
