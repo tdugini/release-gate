@@ -12,3 +12,10 @@ public sealed record FlagChangeResponse(
     DateTimeOffset RequestedAt,
     string? ReviewedBy,
     DateTimeOffset? ReviewedAt);
+
+public sealed record FlagChangeHistoryResponse(
+    IReadOnlyList<FlagChangeResponse> Items,
+    int TotalCount,
+    int Page,
+    int PageSize,
+    int TotalPages);
