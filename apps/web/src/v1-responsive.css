@@ -1,0 +1,34 @@
+/* v1.0 final responsive alignment pass. */
+
+@media (max-width: 900px) {
+  .sidebar {
+    padding: 14px 20px;
+  }
+
+  .brand {
+    padding: 0;
+  }
+
+  .page,
+  .page--narrow {
+    width: min(calc(100% - 40px), 1200px);
+  }
+}
+
+@media (max-width: 700px) {
+  .page,
+  .page--narrow {
+    width: calc(100% - 40px);
+  }
+
+  .environment-switcher {
+    width: 100%;
+    overflow: visible;
+  }
+
+  .environment-switcher button {
+    min-width: 0;
+    flex: 1 1 0;
+    padding-inline: 8px;
+  }
+}
