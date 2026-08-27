@@ -1,0 +1,53 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-releasegate}
+      POSTGRES_USER: ${POSTGRES_USER:-releasegate}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - releasegate-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-releasegate} -d ${POSTGRES_DB:-releasegate}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/ReleaseGate.Api/Dockerfile
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__ReleaseGate: Host=postgres;Port=5432;Database=${POSTGRES_DB:-releasegate};Username=${POSTGRES_USER:-releasegate};Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      ControlPlaneAuth__Tokens__0__Token: ${CONTROL_PLANE_OPERATOR_TOKEN:?Set CONTROL_PLANE_OPERATOR_TOKEN}
+      ControlPlaneAuth__Tokens__0__Subject: ${CONTROL_PLANE_OPERATOR_SUBJECT:-operator}
+      ControlPlaneAuth__Tokens__0__DisplayName: ${CONTROL_PLANE_OPERATOR_NAME:-ReleaseGate Operator}
+      ControlPlaneAuth__Tokens__0__Roles__0: operator
+      ControlPlaneAuth__Tokens__1__Token: ${CONTROL_PLANE_REVIEWER_TOKEN:?Set CONTROL_PLANE_REVIEWER_TOKEN}
+      ControlPlaneAuth__Tokens__1__Subject: ${CONTROL_PLANE_REVIEWER_SUBJECT:-reviewer}
+      ControlPlaneAuth__Tokens__1__DisplayName: ${CONTROL_PLANE_REVIEWER_NAME:-ReleaseGate Reviewer}
+      ControlPlaneAuth__Tokens__1__Roles__0: reviewer
+      RuntimeAccess__ApiKeys__0__Key: ${RUNTIME_API_KEY:?Set RUNTIME_API_KEY}
+      RuntimeAccess__ApiKeys__0__ClientId: ${RUNTIME_CLIENT_ID:-default-runtime-client}
+      RuntimeAccess__ApiKeys__0__Projects__0: "*"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8080"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-8080}:80"
+
+volumes:
+  releasegate-postgres:
