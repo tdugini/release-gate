@@ -10,6 +10,7 @@ import './v1-second-pass.css';
 import './v1-third-pass.css';
 import './v1-fourth-pass.css';
 import './v1-icons.css';
+import './v1-pagination.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
