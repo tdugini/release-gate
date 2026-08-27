@@ -1,0 +1,141 @@
+/* v1.0 fourth-pass: table rhythm and compact dialog controls. */
+
+/* Keep modal chrome quiet so the form remains the focal point. */
+.icon-button {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 8px;
+  background: #f7f6fa;
+  color: #777681;
+  box-shadow: none;
+}
+
+.icon-button svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+.icon-button:hover {
+  border-color: #ccc9d7;
+  background: #f0eff5;
+  color: #4f4e58;
+}
+
+/* Give information columns room, then keep mutation and navigation clearly distinct. */
+.flags-table__head,
+.flag-row {
+  grid-template-columns:
+    minmax(250px, 2fr)
+    112px
+    minmax(150px, 0.95fr)
+    minmax(135px, 0.9fr)
+    96px
+    26px;
+  gap: 24px;
+  padding-inline: 24px;
+}
+
+.flags-table__head {
+  min-height: 46px;
+}
+
+.flags-table__head > span:nth-child(5) {
+  text-align: center;
+}
+
+.flag-row {
+  min-height: 84px;
+}
+
+.flag-row__identity {
+  min-width: 0;
+}
+
+.flag-row__identity strong,
+.flag-row__identity small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flag-quick-action {
+  min-width: 82px;
+  justify-self: center;
+  border-color: #dedce7;
+  background: #fbfbfd;
+}
+
+/* The trailing chevron is navigation, not a second CTA. */
+.row-arrow {
+  width: 18px;
+  height: 18px;
+  display: block;
+  justify-self: end;
+  align-self: center;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #8a8994;
+  opacity: 0.78;
+}
+
+.row-arrow path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.flag-row:hover .row-arrow {
+  color: var(--accent);
+  opacity: 1;
+}
+
+/* Remove earlier generated-chevron decoration now that markup uses an SVG. */
+.row-arrow::before {
+  content: none;
+}
+
+@media (max-width: 1100px) {
+  .flags-table__head,
+  .flag-row {
+    grid-template-columns:
+      minmax(210px, 1.7fr)
+      104px
+      minmax(130px, 0.9fr)
+      minmax(115px, 0.8fr)
+      88px
+      22px;
+    gap: 16px;
+    padding-inline: 18px;
+  }
+}
+
+@media (max-width: 700px) {
+  .flag-row {
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+    padding-inline: 16px;
+  }
+
+  .flag-quick-action {
+    justify-self: start;
+  }
+
+  .row-arrow {
+    width: 18px;
+    height: 18px;
+    justify-self: center;
+  }
+}
