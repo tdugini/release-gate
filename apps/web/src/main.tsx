@@ -11,6 +11,7 @@ import './v1-third-pass.css';
 import './v1-fourth-pass.css';
 import './v1-icons.css';
 import './v1-pagination.css';
+import './v1-responsive.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
