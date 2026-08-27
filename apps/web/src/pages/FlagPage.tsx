@@ -46,6 +46,7 @@ export function FlagPage() {
   const [savingEnvironment, setSavingEnvironment] = useState<string | null>(null);
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const [manageOpen, setManageOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [editName, setEditName] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [manageError, setManageError] = useState<Error | null>(null);
@@ -100,6 +101,15 @@ export function FlagPage() {
     if (!managing) setManageOpen(false);
   };
 
+  const openDeleteConfirmation = () => {
+    setManageOpen(false);
+    setDeleteConfirmOpen(true);
+  };
+
+  const closeDeleteConfirmation = () => {
+    if (!managing) setDeleteConfirmOpen(false);
+  };
+
   const saveFlag = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setManaging(true);
@@ -124,7 +134,6 @@ export function FlagPage() {
 
   const deleteFlag = async () => {
     if (!flagRequest.data) return;
-    if (!window.confirm(`Delete feature flag "${flagRequest.data.name}" and its audit history? This cannot be undone.`)) return;
 
     setManaging(true);
     setManageError(null);
@@ -135,6 +144,8 @@ export function FlagPage() {
     } catch (caught) {
       const nextError = caught instanceof Error ? caught : new Error('Could not delete feature flag.');
       setManageError(nextError);
+      setDeleteConfirmOpen(false);
+      setManageOpen(true);
       showToast(nextError.message, 'error');
       setManaging(false);
     }
@@ -398,7 +409,7 @@ export function FlagPage() {
                   className="button button--danger"
                   type="button"
                   disabled={managing}
-                  onClick={() => void deleteFlag()}
+                  onClick={openDeleteConfirmation}
                 >
                   Delete flag
                 </button>
@@ -412,6 +423,31 @@ export function FlagPage() {
                 </button>
               </div>
             </form>
+          </Dialog>
+
+          <Dialog
+            open={canOperate && deleteConfirmOpen}
+            title="Delete feature flag?"
+            description={`This permanently removes “${flagRequest.data.name}” and its audit history.`}
+            onClose={closeDeleteConfirmation}
+          >
+            <div className="delete-confirmation">
+              <div className="delete-confirmation__warning">
+                <span className="delete-confirmation__icon" aria-hidden="true">!</span>
+                <div>
+                  <strong>This action cannot be undone.</strong>
+                  <p>Applications referencing <code>{flagRequest.data.key}</code> will no longer receive this flag configuration.</p>
+                </div>
+              </div>
+              <div className="form-actions delete-confirmation__actions">
+                <button className="button" type="button" onClick={closeDeleteConfirmation} disabled={managing}>
+                  Keep flag
+                </button>
+                <button className="button button--danger" type="button" onClick={() => void deleteFlag()} disabled={managing}>
+                  {managing ? 'Deleting…' : 'Delete flag'}
+                </button>
+              </div>
+            </div>
           </Dialog>
         </>
       )}
