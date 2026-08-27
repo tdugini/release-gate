@@ -12,10 +12,20 @@ function snapshot(flags, subjectKey = 'user-123') {
   };
 }
 
-function jsonResponse(body, status = 200) {
+function jsonResponse(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...headers,
+    },
+  });
+}
+
+function notModifiedResponse(etag) {
+  return new Response(null, {
+    status: 304,
+    headers: { ETag: etag },
   });
 }
 
@@ -100,6 +110,67 @@ test('refresh replaces the cached snapshot for the same subject', async () => {
 
   assert.equal(client.isEnabled('new-checkout'), true);
   assert.equal(requestCount, 2);
+});
+
+test('refresh revalidates an ETag and reuses the cached snapshot on 304', async () => {
+  const requestEtags = [];
+  let requestCount = 0;
+  const client = new ReleaseGateClient({
+    baseUrl: 'http://localhost:5080',
+    projectKey: 'silva-commerce',
+    environment: 'production',
+    fetch: async (_input, init) => {
+      requestCount += 1;
+      requestEtags.push(new Headers(init?.headers).get('If-None-Match'));
+
+      if (requestCount === 1) {
+        return jsonResponse(
+          snapshot([{ key: 'new-checkout', enabled: true }]),
+          200,
+          { ETag: 'W/"snapshot-v1"' },
+        );
+      }
+
+      return notModifiedResponse('W/"snapshot-v1"');
+    },
+  });
+
+  const initialSnapshot = await client.initialize('user-123');
+  const refreshedSnapshot = await client.refresh();
+
+  assert.strictEqual(refreshedSnapshot, initialSnapshot);
+  assert.equal(client.isEnabled('new-checkout'), true);
+  assert.deepEqual(requestEtags, [null, 'W/"snapshot-v1"']);
+});
+
+test('a changed ETag replaces the cached snapshot', async () => {
+  const requestEtags = [];
+  let requestCount = 0;
+  const client = new ReleaseGateClient({
+    baseUrl: 'http://localhost:5080',
+    projectKey: 'silva-commerce',
+    environment: 'production',
+    fetch: async (_input, init) => {
+      requestCount += 1;
+      requestEtags.push(new Headers(init?.headers).get('If-None-Match'));
+
+      return requestCount === 1
+        ? jsonResponse(snapshot([{ key: 'new-checkout', enabled: false }]), 200, {
+            ETag: 'W/"snapshot-v1"',
+          })
+        : jsonResponse(snapshot([{ key: 'new-checkout', enabled: true }]), 200, {
+            ETag: 'W/"snapshot-v2"',
+          });
+    },
+  });
+
+  await client.initialize('user-123');
+  assert.equal(client.isEnabled('new-checkout'), false);
+
+  await client.refresh();
+
+  assert.equal(client.isEnabled('new-checkout'), true);
+  assert.deepEqual(requestEtags, [null, 'W/"snapshot-v1"']);
 });
 
 test('a failed refresh preserves the last valid snapshot', async () => {
