@@ -17,8 +17,6 @@ export function AppShell() {
           <NavLink to="/" end>
             Projects
           </NavLink>
-          <span className="sidebar__disabled">Audit log <small>soon</small></span>
-          <span className="sidebar__disabled">SDK keys <small>soon</small></span>
         </nav>
 
         <div className="sidebar__footer">
@@ -39,7 +37,7 @@ export function AppShell() {
             <span className="environment-chip__dot" />
             {workspaceLabel}
           </span>
-          <small>v0.9 · SDK & deployment</small>
+          <small>v1.0 · release control plane</small>
         </div>
       </aside>
 
