@@ -36,7 +36,9 @@ export function Dialog({ open, title, description, children, onClose }: DialogPr
           {description && <p>{description}</p>}
         </div>
         <button className="icon-button" type="button" onClick={onClose} aria-label="Close dialog">
-          ×
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M6 6l8 8M14 6l-8 8" />
+          </svg>
         </button>
       </div>
       {children}
