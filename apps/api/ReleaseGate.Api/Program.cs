@@ -59,6 +59,7 @@ app.MapGet("/health", () => Results.Ok(new
     timestamp = DateTimeOffset.UtcNow
 }));
 
+app.MapAuthEndpoints();
 app.MapProjectEndpoints();
 app.MapFeatureFlagEndpoints();
 app.MapRuntimeEndpoints();
