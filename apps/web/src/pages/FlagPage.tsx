@@ -1,20 +1,32 @@
-import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useEffect, useState, type FormEvent } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ChangeHistoryPanel } from '../components/ChangeHistoryPanel';
+import { Dialog } from '../components/Dialog';
 import { DirectionalIcon } from '../components/DirectionalIcon';
 import { useAuth } from '../components/AuthProvider';
 import { StatusDot } from '../components/StatusDot';
 import { useToast } from '../components/ToastProvider';
 import { useAsync } from '../hooks/useAsync';
-import { api } from '../lib/api';
+import { ApiError, api } from '../lib/api';
 
 type EnvironmentDraft = {
   enabled: boolean;
   rolloutPercentage: number;
 };
 
+function getFieldError(error: unknown, field: string) {
+  if (!(error instanceof ApiError)) return undefined;
+
+  const match = Object.entries(error.fieldErrors).find(
+    ([key]) => key.toLowerCase() === field.toLowerCase(),
+  );
+
+  return match?.[1]?.[0];
+}
+
 export function FlagPage() {
   const { projectKey = '', flagKey = '' } = useParams();
+  const navigate = useNavigate();
   const { hasRole } = useAuth();
   const { showToast } = useToast();
   const canOperate = hasRole('operator');
@@ -33,6 +45,11 @@ export function FlagPage() {
   const [drafts, setDrafts] = useState<Record<string, EnvironmentDraft>>({});
   const [savingEnvironment, setSavingEnvironment] = useState<string | null>(null);
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+  const [manageOpen, setManageOpen] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [manageError, setManageError] = useState<Error | null>(null);
+  const [managing, setManaging] = useState(false);
 
   useEffect(() => {
     if (!flagRequest.data) return;
@@ -71,6 +88,58 @@ export function FlagPage() {
     await Promise.all([flagRequest.reload(), productionHistoryRequest.reload()]);
   };
 
+  const openManageDialog = () => {
+    if (!flagRequest.data) return;
+    setEditName(flagRequest.data.name);
+    setEditDescription(flagRequest.data.description ?? '');
+    setManageError(null);
+    setManageOpen(true);
+  };
+
+  const closeManageDialog = () => {
+    if (!managing) setManageOpen(false);
+  };
+
+  const saveFlag = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setManaging(true);
+    setManageError(null);
+
+    try {
+      await api.flags.update(projectKey, flagKey, {
+        name: editName.trim(),
+        description: editDescription.trim() || undefined,
+      });
+      await flagRequest.reload();
+      setManageOpen(false);
+      showToast('Feature flag details updated.');
+    } catch (caught) {
+      const nextError = caught instanceof Error ? caught : new Error('Could not update feature flag.');
+      setManageError(nextError);
+      showToast(nextError.message, 'error');
+    } finally {
+      setManaging(false);
+    }
+  };
+
+  const deleteFlag = async () => {
+    if (!flagRequest.data) return;
+    if (!window.confirm(`Delete feature flag "${flagRequest.data.name}" and its audit history? This cannot be undone.`)) return;
+
+    setManaging(true);
+    setManageError(null);
+    try {
+      await api.flags.delete(projectKey, flagKey);
+      showToast(`Feature flag ${flagRequest.data.name} deleted.`);
+      navigate(`/projects/${projectKey}`);
+    } catch (caught) {
+      const nextError = caught instanceof Error ? caught : new Error('Could not delete feature flag.');
+      setManageError(nextError);
+      showToast(nextError.message, 'error');
+      setManaging(false);
+    }
+  };
+
   const saveEnvironment = async (environment: string) => {
     const draft = drafts[environment];
     if (!draft) return;
@@ -94,6 +163,9 @@ export function FlagPage() {
     }
   };
 
+  const editNameError = getFieldError(manageError, 'name');
+  const editDescriptionError = getFieldError(manageError, 'description');
+
   return (
     <div className="page page--narrow">
       <Link
@@ -110,12 +182,21 @@ export function FlagPage() {
       {flagRequest.data && (
         <>
           <header className="flag-detail-header">
-            <p className="eyebrow">Feature flag</p>
-            <div>
-              <h1>{flagRequest.data.name}</h1>
-              <code>{flagRequest.data.key}</code>
+            <div className="flag-detail-header__titlebar">
+              <div className="flag-detail-header__identity">
+                <p className="eyebrow">Feature flag</p>
+                <div className="flag-detail-header__name">
+                  <h1>{flagRequest.data.name}</h1>
+                  <code>{flagRequest.data.key}</code>
+                </div>
+                <p>{flagRequest.data.description ?? 'No description.'}</p>
+              </div>
+              {canOperate && (
+                <button className="button entity-manage-button" type="button" onClick={openManageDialog}>
+                  Manage flag
+                </button>
+              )}
             </div>
-            <p>{flagRequest.data.description ?? 'No description.'}</p>
           </header>
 
           <section className="environment-cards">
@@ -272,6 +353,66 @@ export function FlagPage() {
             refreshKey={historyRefreshKey}
             onReviewed={reloadFlagState}
           />
+
+          <Dialog
+            open={canOperate && manageOpen}
+            title="Manage feature flag"
+            description="Update flag metadata or permanently remove the flag and its environment configuration."
+            onClose={closeManageDialog}
+          >
+            <form className="management-form" onSubmit={saveFlag}>
+              <div className="field">
+                <label htmlFor="flag-edit-name">Name</label>
+                <input
+                  id="flag-edit-name"
+                  value={editName}
+                  onChange={(event) => setEditName(event.target.value)}
+                  autoFocus
+                  required
+                />
+                {editNameError && <span className="field-error">{editNameError}</span>}
+              </div>
+              <div className="field">
+                <label htmlFor="flag-edit-key">Key</label>
+                <input id="flag-edit-key" value={flagRequest.data.key} disabled readOnly />
+                <small>Keys are immutable because applications and SDK clients reference them.</small>
+              </div>
+              <div className="field">
+                <label htmlFor="flag-edit-description">Description</label>
+                <textarea
+                  id="flag-edit-description"
+                  value={editDescription}
+                  onChange={(event) => setEditDescription(event.target.value)}
+                />
+                {editDescriptionError && <span className="field-error">{editDescriptionError}</span>}
+              </div>
+              {manageError && !(editNameError || editDescriptionError) && (
+                <div className="form-error" role="alert">{manageError.message}</div>
+              )}
+              <div className="management-danger-zone">
+                <div>
+                  <strong>Delete feature flag</strong>
+                  <small>Deletes all environment settings and the flag audit history.</small>
+                </div>
+                <button
+                  className="button button--danger"
+                  type="button"
+                  disabled={managing}
+                  onClick={() => void deleteFlag()}
+                >
+                  Delete flag
+                </button>
+              </div>
+              <div className="form-actions">
+                <button className="button" type="button" onClick={closeManageDialog} disabled={managing}>
+                  Cancel
+                </button>
+                <button className="button button--primary" type="submit" disabled={managing}>
+                  {managing ? 'Saving…' : 'Save flag'}
+                </button>
+              </div>
+            </form>
+          </Dialog>
         </>
       )}
     </div>
