@@ -1,6 +1,9 @@
 import { NavLink, Outlet } from 'react-router-dom';
+import { useAuth } from './AuthProvider';
 
 export function AppShell() {
+  const { identity, signOut } = useAuth();
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -18,11 +21,24 @@ export function AppShell() {
         </nav>
 
         <div className="sidebar__footer">
+          <div className="control-plane-user">
+            <div>
+              <strong>{identity.displayName}</strong>
+              <small>{identity.subject}</small>
+            </div>
+            <div className="control-plane-user__roles" aria-label="Assigned roles">
+              {identity.roles.map((role) => <span key={role}>{role}</span>)}
+            </div>
+            <button className="sidebar__signout" type="button" onClick={signOut}>
+              Sign out
+            </button>
+          </div>
+
           <span className="environment-chip">
             <span className="environment-chip__dot" />
             Local workspace
           </span>
-          <small>v0.1 · control plane</small>
+          <small>v0.6 · authenticated control plane</small>
         </div>
       </aside>
 
