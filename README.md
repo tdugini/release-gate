@@ -6,24 +6,21 @@ It is designed around a real internal-platform problem: teams need a safe way to
 
 **ASP.NET Core · React · TypeScript · PostgreSQL · Entity Framework Core · Docker**
 
-## Current milestone — v0.7
+## Current milestone — v0.8
 
-**Versioned database migrations.**
+**Runtime API key security.**
 
-ReleaseGate now manages PostgreSQL schema evolution through explicit EF Core migrations instead of relying on `EnsureCreated` during local development.
+ReleaseGate now protects application-facing runtime snapshots with dedicated machine-to-machine API keys instead of exposing runtime configuration anonymously or reusing human control-plane credentials.
 
 ReleaseGate now provides:
 
-- an initial migration for the existing ReleaseGate schema;
-- a versioned EF Core model snapshot;
-- a repository-pinned `dotnet-ef` CLI tool;
-- automatic `MigrateAsync()` startup in local development;
-- safe baselining of complete legacy databases created before v0.7;
-- refusal to auto-baseline partial or ambiguous legacy schemas;
-- CI verification that the EF model snapshot is current;
-- CI application of migrations against a real empty PostgreSQL database.
-
-The legacy upgrade path was manually verified by creating a database with the v0.6 `EnsureCreated` bootstrap, switching to v0.7 without deleting the PostgreSQL volume, and confirming that the existing projects and flags remained available while `20260827090000_InitialSchema` was recorded in `__EFMigrationsHistory` with EF Core product version `10.0.4`.
+- runtime API keys configured independently from operator/reviewer bearer tokens;
+- constant-time API key comparison;
+- per-project runtime scopes with optional wildcard access;
+- `401 Unauthorized` for missing or invalid runtime credentials;
+- `403 Forbidden` for valid credentials outside their configured project scope;
+- a JavaScript/TypeScript SDK that sends runtime credentials automatically;
+- integration tests that keep control-plane and runtime credentials as separate security boundaries.
 
 ### Milestone progress
 
@@ -33,8 +30,8 @@ The legacy upgrade path was manually verified by creating a database with the v0
 - **v0.4 — Audit & approvals:** persisted change history, control-plane audit view and approval/rejection workflow for production changes.
 - **v0.5 — SDK & updates:** runtime snapshot delivery, JavaScript/TypeScript SDK, automatic refresh and conditional revalidation.
 - **v0.6 — Authentication & RBAC:** authenticated control plane, operator/reviewer roles, authenticated audit actors and self-review protection.
-- **v0.7 — EF Core migrations:** versioned schema evolution, legacy database baselining and migration verification in CI. **Current.**
-- **v0.8 — Runtime security:** production-grade machine-to-machine access for runtime configuration delivery.
+- **v0.7 — EF Core migrations:** versioned schema evolution, legacy database baselining and migration verification in CI.
+- **v0.8 — Runtime security:** machine-to-machine API keys, project scopes and SDK credential propagation. **Current.**
 - **v0.9 — SDK & deployment:** SDK publishing/versioning and production-like deployment.
 - **v1.0 — Product polish:** operational documentation, portfolio-ready demo and final visual overhaul.
 
@@ -57,9 +54,13 @@ This avoids duplicating the flag definition for every environment and keeps the 
 
 Environment configuration changes also produce persisted history entries so operators can inspect how a flag reached its current state. Production changes must be reviewed before they affect runtime traffic.
 
-## Control-plane roles
+## Security boundaries
 
-ReleaseGate currently defines two control-plane roles:
+ReleaseGate intentionally separates human control-plane access from application runtime access.
+
+### Control plane
+
+Control-plane users authenticate with bearer tokens and are assigned roles:
 
 | Role | Capabilities |
 | --- | --- |
@@ -67,6 +68,12 @@ ReleaseGate currently defines two control-plane roles:
 | `reviewer` | Inspect control-plane state and approve or reject pending production changes created by another identity. |
 
 A reviewer cannot approve or reject their own production change.
+
+### Runtime
+
+Applications and SDKs authenticate separately with `X-ReleaseGate-Key`.
+
+Runtime keys may be scoped to one or more project keys, or to `*` for wildcard access. A control-plane bearer token does not grant runtime access, and a runtime key does not grant control-plane access.
 
 ## Repository layout
 
@@ -107,10 +114,11 @@ The development API listens on `http://localhost:5080`.
 
 During development the API applies pending EF Core migrations automatically before seeding development data. Existing pre-v0.7 local databases with the complete legacy schema are baselined once and then managed through normal migration history.
 
-Development control-plane identities are configured in `apps/api/ReleaseGate.Api/appsettings.Development.json`:
+Development credentials are configured in `apps/api/ReleaseGate.Api/appsettings.Development.json`:
 
 - operator token: `releasegate-local-operator`
 - reviewer token: `releasegate-local-reviewer`
+- runtime API key: `releasegate-local-runtime`
 
 These values are development-only credentials and are intentionally stored in development configuration for local testing.
 
@@ -122,7 +130,7 @@ npm ci
 npm run dev
 ```
 
-The web app listens on `http://localhost:5173`. Enter one of the development bearer tokens on the access screen to open the control plane.
+The web app listens on `http://localhost:5173`. Enter one of the development control-plane bearer tokens on the access screen to open the control plane.
 
 ### 4. Validate the JavaScript SDK
 
@@ -247,18 +255,20 @@ Content-Type: application/json
 }
 ```
 
-Fetch the application-facing runtime snapshot for that subject:
+Fetch the application-facing runtime snapshot for that subject with a runtime credential:
 
 ```http
 GET /api/runtime/projects/silva-commerce/environments/production/snapshot?subjectKey=user-92841
+X-ReleaseGate-Key: releasegate-local-runtime
 ```
 
-The runtime snapshot endpoint does not use control-plane bearer authentication. It represents the application-consumption boundary and is intentionally kept separate from administrative permissions.
+The runtime snapshot endpoint does not accept control-plane bearer authentication as a substitute for the runtime key.
 
 Runtime responses include an ETag. Consumers can revalidate the cached snapshot without downloading an unchanged JSON payload:
 
 ```http
 GET /api/runtime/projects/silva-commerce/environments/production/snapshot?subjectKey=user-92841
+X-ReleaseGate-Key: releasegate-local-runtime
 If-None-Match: W/"..."
 ```
 
@@ -273,6 +283,7 @@ const client = new ReleaseGateClient({
   baseUrl: 'http://localhost:5080',
   projectKey: 'silva-commerce',
   environment: 'production',
+  apiKey: 'releasegate-local-runtime',
   refreshInterval: 30_000,
 });
 
@@ -283,7 +294,7 @@ if (client.isEnabled('new-checkout')) {
 }
 ```
 
-After initialization, flag checks are local in-memory lookups. Refreshes revalidate the current snapshot through ETags, and automatic polling never overlaps requests.
+After initialization, flag checks are local in-memory lookups. Refreshes revalidate the current snapshot through ETags, and automatic polling never overlaps requests. Runtime credentials are attached only to snapshot requests and remain independent from control-plane authentication.
 
 ## Engineering direction
 
@@ -291,8 +302,9 @@ ReleaseGate deliberately evolves through complete vertical slices instead of gen
 
 The project is built around several constraints:
 
-- explicit authenticated control-plane and application-facing runtime boundaries;
+- explicit separation between authenticated human control-plane access and machine-to-machine runtime access;
 - role-based authorization for management and production review operations;
+- project-scoped runtime API credentials;
 - versioned and repeatable database schema evolution;
 - environment-safe configuration;
 - deterministic percentage rollout evaluation;
@@ -303,6 +315,6 @@ The project is built around several constraints:
 - auditable production configuration changes with authenticated actors;
 - separation of duties for sensitive production changes.
 
-Production-grade runtime credentials, real identity-provider integration, SDK publishing/versioning and production deployment remain future hardening steps.
+Real identity-provider integration, SDK publishing/versioning and production deployment remain future hardening steps.
 
 See `ARCHITECTURE.md` for the current decisions and planned boundaries.
