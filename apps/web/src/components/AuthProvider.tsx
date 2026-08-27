@@ -88,7 +88,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       <main className="access-screen">
         <div className="access-card">
           <span className="brand__mark">RG</span>
-          <p className="eyebrow">Control plane</p>
+          <p className="eyebrow">ReleaseGate</p>
           <h1>Checking access…</h1>
         </div>
       </main>
@@ -100,11 +100,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
       <main className="access-screen">
         <section className="access-card" aria-labelledby="access-title">
           <span className="brand__mark">RG</span>
-          <p className="eyebrow">ReleaseGate control plane</p>
-          <h1 id="access-title">Authenticate to continue</h1>
+          <p className="eyebrow">Release control plane</p>
+          <h1 id="access-title">Access ReleaseGate</h1>
           <p>
-            Enter a control-plane bearer token. Development identities are configured in
-            <code> appsettings.Development.json</code>.
+            Enter a control-plane bearer token configured for this ReleaseGate deployment.
           </p>
 
           <form className="access-form" onSubmit={handleSubmit}>
