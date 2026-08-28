@@ -1,12 +1,13 @@
+name: releasegate
+
 services:
   postgres:
     image: postgres:17-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-releasegate}
       POSTGRES_USER: ${POSTGRES_USER:-releasegate}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-releasegate_dev}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
     volumes:
       - releasegate-postgres:/var/lib/postgresql/data
     healthcheck:
@@ -14,6 +15,46 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    networks:
+      - releasegate-internal
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_DEMO_ACCESS_TOKEN: ${DEMO_ACCESS_TOKEN:-releasegate-demo-viewer}
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: 8080
+      DemoMode__Enabled: "true"
+      ConnectionStrings__ReleaseGate: Host=postgres;Port=5432;Database=${POSTGRES_DB:-releasegate};Username=${POSTGRES_USER:-releasegate};Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      ControlPlaneAuth__Tokens__0__Token: ${DEMO_ACCESS_TOKEN:-releasegate-demo-viewer}
+      ControlPlaneAuth__Tokens__0__Subject: portfolio-demo
+      ControlPlaneAuth__Tokens__0__DisplayName: Portfolio Demo
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8080"
+    networks:
+      - releasegate-internal
+      - docker_frontend_wp
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=docker_frontend_wp
+      - traefik.http.routers.releasegate.rule=Host(`${RELEASEGATE_HOST:-releasegate.maytech.it}`)
+      - traefik.http.routers.releasegate.entrypoints=https
+      - traefik.http.routers.releasegate.tls=true
+      - traefik.http.routers.releasegate.tls.certresolver=letsencrypt
+      - traefik.http.services.releasegate.loadbalancer.server.port=8080
+
+networks:
+  releasegate-internal:
+    internal: true
+  docker_frontend_wp:
+    external: true
 
 volumes:
   releasegate-postgres:
