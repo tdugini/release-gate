@@ -134,6 +134,17 @@ OUTER
 
           echo "==> rsync finished"
 
+      - name: Verify remote directory contents
+        if: always()
+        run: |
+          set -euo pipefail
+          USER="${{ steps.server.outputs.user }}"
+          HOST="${{ steps.server.outputs.host }}"
+          DEST="/docker/TDUGINI/releasegate"
+          echo "==> Listing ${DEST} on ${USER}@${HOST}"
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "${USER}@${HOST}" "ls -la '${DEST}' && echo '---' && head -3 '${DEST}/docker-compose.yml' 2>/dev/null || echo 'docker-compose.yml missing'"
+
       - name: Start containers on VPS
         run: |
           set -euo pipefail
