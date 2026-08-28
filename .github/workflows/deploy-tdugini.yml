@@ -85,18 +85,17 @@ jobs:
 
           # Smoke test the connection. BatchMode=yes makes ssh fail
           # immediately if the agent does not have a usable key.
-          # -vvv prints which keys ssh offers and how the server
-          # responds, so we can see whether the right public key
-          # is being proposed and rejected for a permissions issue.
+          # We deliberately do NOT set IdentitiesOnly=yes here:
+          # that option tells ssh to ignore the agent and only use
+          # -i / config identities, which we don't have.
           USER="${{ steps.server.outputs.user }}"
           HOST="${{ steps.server.outputs.host }}"
           echo "==> Test SSH connection to ${USER}@${HOST}:"
           set +e
-          ssh -vvv \
+          ssh \
               -o BatchMode=yes \
               -o StrictHostKeyChecking=no \
               -o UserKnownHostsFile=/dev/null \
-              -o IdentitiesOnly=yes \
               "${USER}@${HOST}" \
               "echo 'SSH OK' && hostname && id" 2>&1
           SSH_EXIT=$?
