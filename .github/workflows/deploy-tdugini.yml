@@ -30,26 +30,17 @@ jobs:
           set -euo pipefail
           mkdir -p ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
-          tr -d '\r' < ~/.ssh/deploy_key > ~/.ssh/deploy_key.tmp
-          mv ~/.ssh/deploy_key.tmp ~/.ssh/deploy_key
+          tr -d '\r' < ~/.ssh/deploy_key > ~/.ssh/.tmp
+          mv ~/.ssh/.tmp ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-
-          cat > ~/.ssh/_askpass.sh <<'OUTER'
-#!/bin/sh
-echo "$SSH_PASSPHRASE"
-OUTER
+          printf '#!/bin/sh\necho "$SSH_PASSPHRASE"\n' > ~/.ssh/_askpass.sh
           chmod 700 ~/.ssh/_askpass.sh
-
           eval "$(ssh-agent -s)"
           {
             echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK"
             echo "SSH_AGENT_PID=$SSH_AGENT_PID"
           } >> "$GITHUB_ENV"
-
-          SSH_ASKPASS=$HOME/.ssh/_askpass.sh \
-          SSH_ASKPASS_REQUIRE=force \
-          setsid ssh-add ~/.ssh/deploy_key
-
+          SSH_ASKPASS=$HOME/.ssh/_askpass.sh SSH_ASKPASS_REQUIRE=force setsid ssh-add ~/.ssh/deploy_key
           echo "==> Loaded keys:"
           ssh-add -l
         env:
@@ -62,15 +53,12 @@ OUTER
           USER="${{ steps.server.outputs.user }}"
           HOST="${{ steps.server.outputs.host }}"
           DEST="/docker/TDUGINI/releasegate"
-
           echo "==> Recreating ${DEST} on ${USER}@${HOST}"
           ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             "${USER}@${HOST}" "rm -rf '${DEST}' && mkdir -p '${DEST}'"
-
           echo "==> scp -r ./ ${USER}@${HOST}:${DEST}/"
           scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             ./ "${USER}@${HOST}:${DEST}/"
-
           echo "==> scp finished"
 
       - name: Verify remote directory
@@ -82,9 +70,7 @@ OUTER
           echo "==> Listing ${DEST} on ${USER}@${HOST}"
           ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             "${USER}@${HOST}" \
-            "echo '--- ls -la ---' && ls -la '${DEST}' && \
-             echo '--- first 3 lines of docker-compose.yml ---' && \
-             head -3 '${DEST}/docker-compose.yml' 2>&1 || echo 'docker-compose.yml missing'"
+            "echo '--- ls -la ---' && ls -la '${DEST}' && echo '--- head -3 docker-compose.yml ---' && head -3 '${DEST}/docker-compose.yml' 2>&1 || echo 'docker-compose.yml missing'"
 
       - name: Stop SSH agent
         if: always()
