@@ -142,6 +142,32 @@ jobs:
           DEST="/docker/TDUGINI/releasegate"
           COMPOSE_FILE="docker-compose.yml"
 
+          # Ensure a .env file exists on the VPS so docker compose
+          # can expand POSTGRES_PASSWORD and friends. Only generated
+          # the first time; on later deploys the existing file is
+          # kept so the Postgres volume remains accessible.
+          PG_PW="$${POSTGRES_PASSWORD:-}"
+          if [ -z "$PG_PW" ]; then
+            PG_PW=$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)
+            echo "==> POSTGRES_PASSWORD not provided, generated a random one"
+          else
+            echo "==> POSTGRES_PASSWORD provided via env"
+          fi
+
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "${USER}@${HOST}" \
+            "set -e
+             cd '${DEST}'
+             if [ ! -f .env ]; then
+               printf 'POSTGRES_PASSWORD=%s\nDEMO_ACCESS_TOKEN=releasegate-demo-viewer\n' '${PG_PW}' > .env
+               chmod 600 .env
+               echo '==> .env created'
+             else
+               echo '==> .env already present, keeping existing POSTGRES_PASSWORD'
+             fi
+             echo '--- .env keys ---'
+             sed -E 's/=.*/=<redacted>/' .env"
+
           echo "==> cd ${DEST} && docker compose up -d --build --remove-orphans"
           ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             "${USER}@${HOST}" \
