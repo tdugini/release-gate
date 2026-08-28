@@ -5,6 +5,7 @@ using ReleaseGate.Api.Persistence;
 using ReleaseGate.Api.Security;
 
 var builder = WebApplication.CreateBuilder(args);
+var demoMode = builder.Configuration.GetValue<bool>("DemoMode:Enabled");
 
 builder.Services.AddOpenApi();
 builder.Services.AddDbContext<ReleaseGateDbContext>(options =>
@@ -55,7 +56,7 @@ await using (var scope = app.Services.CreateAsyncScope())
         await db.Database.MigrateAsync();
     }
 
-    if (app.Environment.IsDevelopment())
+    if (app.Environment.IsDevelopment() || demoMode)
     {
         await DevelopmentDataSeeder.SeedAsync(db);
     }
@@ -65,6 +66,12 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
     app.UseCors("web");
+}
+
+if (demoMode)
+{
+    app.UseDefaultFiles();
+    app.UseStaticFiles();
 }
 
 app.UseAuthentication();
@@ -83,6 +90,31 @@ app.MapFeatureFlagEndpoints();
 app.MapFeatureFlagManagementEndpoints();
 app.MapFlagChangeHistoryEndpoints();
 app.MapRuntimeEndpoints();
+
+if (demoMode)
+{
+    app.MapFallback(async context =>
+    {
+        if (context.Request.Path.StartsWithSegments("/api")
+            || context.Request.Path.StartsWithSegments("/health"))
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        var webRoot = app.Environment.WebRootPath ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+        var indexPath = Path.Combine(webRoot, "index.html");
+
+        if (!File.Exists(indexPath))
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        context.Response.ContentType = "text/html; charset=utf-8";
+        await context.Response.SendFileAsync(indexPath);
+    });
+}
 
 app.Run();
 

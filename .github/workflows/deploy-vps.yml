@@ -1,0 +1,98 @@
+name: Deploy VPS
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      vars.VPS_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install SSH tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y putty-tools
+
+      - name: Prepare SSH key
+        env:
+          SRV_KEY: ${{ secrets.SRV_KEY }}
+        run: |
+          test -n "$SRV_KEY"
+          KEYDIR="$RUNNER_TEMP/ssh"
+          mkdir -p "$KEYDIR"
+          printf '%s' "$SRV_KEY" > "$KEYDIR/key.ppk"
+          puttygen "$KEYDIR/key.ppk" -O private-openssh -o "$KEYDIR/key.pem"
+          chmod 600 "$KEYDIR/key.pem"
+
+      - name: Deploy tested revision to VPS
+        env:
+          SRV_USRSRV: ${{ secrets.SRV_USRSRV }}
+          POSTGRES_PASSWORD: ${{ secrets.RELEASEGATE_POSTGRES_PASSWORD }}
+          RELEASEGATE_HOST: ${{ vars.RELEASEGATE_HOST || 'releasegate.maytech.it' }}
+          REPO_TOKEN: ${{ github.token }}
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          test -n "$SRV_USRSRV"
+          test -n "$POSTGRES_PASSWORD"
+
+          REPO_AUTH="$(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          POSTGRES_PASSWORD_B64="$(printf '%s' "$POSTGRES_PASSWORD" | base64 -w0)"
+
+          ssh \
+            -i "$RUNNER_TEMP/ssh/key.pem" \
+            -o StrictHostKeyChecking=no \
+            "$SRV_USRSRV" \
+            "REPO_AUTH='$REPO_AUTH' POSTGRES_PASSWORD_B64='$POSTGRES_PASSWORD_B64' RELEASEGATE_HOST='$RELEASEGATE_HOST' DEPLOY_SHA='$DEPLOY_SHA' GITHUB_REPOSITORY='$GITHUB_REPOSITORY' bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          BASE_PATH="/docker/releasegate"
+          AUTH_HEADER="Authorization: Basic $REPO_AUTH"
+
+          mkdir -p "$(dirname "$BASE_PATH")"
+
+          if [ ! -d "$BASE_PATH/.git" ]; then
+            git -c http.extraHeader="$AUTH_HEADER" \
+              clone "https://github.com/$GITHUB_REPOSITORY.git" "$BASE_PATH"
+          fi
+
+          git -C "$BASE_PATH" -c http.extraHeader="$AUTH_HEADER" fetch origin main
+          git -C "$BASE_PATH" reset --hard
+          git -C "$BASE_PATH" clean -fd
+          git -C "$BASE_PATH" checkout --detach "$DEPLOY_SHA"
+
+          POSTGRES_PASSWORD="$(printf '%s' "$POSTGRES_PASSWORD_B64" | base64 -d)"
+
+          umask 077
+          cat > "$BASE_PATH/.env" <<ENV
+          POSTGRES_DB=releasegate
+          POSTGRES_USER=releasegate
+          POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+          DEMO_ACCESS_TOKEN=releasegate-demo-viewer
+          RELEASEGATE_HOST=$RELEASEGATE_HOST
+          ENV
+
+          if ! docker network inspect docker_frontend_wp > /dev/null 2>&1; then
+            echo "Required Traefik network 'docker_frontend_wp' does not exist."
+            exit 1
+          fi
+
+          cd "$BASE_PATH"
+          docker compose up -d --build --remove-orphans
+          docker compose ps
+          REMOTE
+
+      - name: Deployment summary
+        env:
+          RELEASEGATE_HOST: ${{ vars.RELEASEGATE_HOST || 'releasegate.maytech.it' }}
+        run: |
+          echo "### ReleaseGate VPS deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "Deployed tested commit \`${{ github.event.workflow_run.head_sha }}\`." >> "$GITHUB_STEP_SUMMARY"
+          echo "URL: https://${RELEASEGATE_HOST}" >> "$GITHUB_STEP_SUMMARY"
