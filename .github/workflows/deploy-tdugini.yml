@@ -134,6 +134,31 @@ jobs:
             "${USER}@${HOST}" \
             "echo '--- ls -la ---' && ls -la '${DEST}' && echo '--- head -3 docker-compose.yml ---' && head -3 '${DEST}/docker-compose.yml' 2>&1 || echo 'docker-compose.yml missing'"
 
+      - name: Start containers on VPS
+        run: |
+          set -euo pipefail
+          USER="${{ steps.server.outputs.user }}"
+          HOST="${{ steps.server.outputs.host }}"
+          DEST="/docker/TDUGINI/releasegate"
+          COMPOSE_FILE="docker-compose.yml"
+
+          echo "==> cd ${DEST} && docker compose up -d --build --remove-orphans"
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "${USER}@${HOST}" \
+            "set -euo pipefail
+             cd '${DEST}'
+             if [ ! -f '${COMPOSE_FILE}' ]; then
+               echo '::error::${COMPOSE_FILE} not found in ${DEST}'
+               exit 1
+             fi
+             if ! docker network inspect docker_frontend_wp >/dev/null 2>&1; then
+               echo '::error::External network docker_frontend_wp is missing on the host'
+               exit 1
+             fi
+             docker compose -f '${COMPOSE_FILE}' up -d --build --remove-orphans
+             echo '==> Active containers:'
+             docker compose -f '${COMPOSE_FILE}' ps"
+
       - name: Stop SSH agent
         if: always()
         run: |
