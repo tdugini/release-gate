@@ -12,197 +12,63 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Parse SERVER secret into user and host
+      - name: Parse SERVER secret
         id: server
         run: |
           SERVER="${{ secrets.SERVER }}"
-          if [[ "$SERVER" != *"@"* ]]; then
-            echo "::error::SERVER secret must be in the form user@host (got: $SERVER)"
-            exit 1
-          fi
           echo "user=${SERVER%@*}" >> "$GITHUB_OUTPUT"
           echo "host=${SERVER#*@}" >> "$GITHUB_OUTPUT"
-          echo "Parsed SSH target: ${SERVER%@*}@${SERVER#*@}"
 
-      - name: Verify SSH + tar are available on the host
-        id: hostcheck
-        run: |
-          set -euo pipefail
-          USER="${{ steps.server.outputs.user }}"
-          HOST="${{ steps.server.outputs.host }}"
-          echo "==> Probing host: ${USER}@${HOST}"
-          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            "${USER}@${HOST}" 'set -e
-              echo "remote user: $(id -un)"
-              echo "remote umask: $(umask)"
-              echo "tar:     $(command -v tar || echo MISSING)"
-              echo "rsync:   $(command -v rsync || echo MISSING)"
-              echo "docker:  $(command -v docker || echo MISSING)"
-              echo "groups:  $(id -Gn)"
-              echo "PATH:    $PATH"
-              mkdir -p "$1" && echo "mkdir $1: OK" || echo "mkdir $1: FAIL"
-              touch "$1/.testwrite" && echo "touch $1: OK" || echo "touch $1: FAIL"
-              rm -f "$1/.testwrite"
-            ' -- /docker/TDUGINI/releasegate
-
-      - name: Write SSH key to disk
+      - name: Setup SSH (agent + key + passphrase)
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh
-
-          # Write the key verbatim and ensure a trailing newline.
           printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
-          # Normalize CRLF -> LF in case the secret was pasted/uploaded
-          # with Windows line endings.
           tr -d '\r' < ~/.ssh/deploy_key > ~/.ssh/deploy_key.tmp
           mv ~/.ssh/deploy_key.tmp ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
 
-          bytes=$(wc -c < ~/.ssh/deploy_key | tr -d ' ')
-          lines=$(wc -l < ~/.ssh/deploy_key | tr -d ' ')
-          first_line=$(head -n 1 ~/.ssh/deploy_key)
-          last_line=$(tail -n 1 ~/.ssh/deploy_key)
-          fingerprint=$(sha256sum ~/.ssh/deploy_key | awk '{print $1}')
-
-          echo "==> SSH key on disk: $bytes bytes, $lines lines"
-          echo "==> First line: $first_line"
-          echo "==> Last line:  $last_line"
-          echo "==> SHA256:      $fingerprint"
-        env:
-          SSH_KEY: ${{ secrets.KEY }}
-
-      - name: Start SSH agent and unlock the key
-        id: agent
-        if: ${{ env.SSH_PASSPHRASE != '' }}
-        run: |
-          set -euo pipefail
-
-          # Start the agent and export its socket + pid for the
-          # remaining steps via $GITHUB_ENV.
-          eval "$(ssh-agent -s)"
-          {
-            echo "SSH_AUTH_SOCK=${SSH_AUTH_SOCK}"
-            echo "SSH_AGENT_PID=${SSH_AGENT_PID}"
-          } >> "$GITHUB_ENV"
-
-          # askpass helper: prints the passphrase when invoked.
-          # Lives in ~/.ssh so the agent step has a stable path.
           cat > ~/.ssh/_askpass.sh <<'OUTER'
 #!/bin/sh
 echo "$SSH_PASSPHRASE"
 OUTER
           chmod 700 ~/.ssh/_askpass.sh
 
-          # Add the key. SSH_ASKPASS_REQUIRE=force makes ssh-add use
-          # the askpass program even though there is no controlling
-          # terminal in the runner. setsid detaches it cleanly.
-          SSH_ASKPASS="$HOME/.ssh/_askpass.sh" \
+          eval "$(ssh-agent -s)"
+          {
+            echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK"
+            echo "SSH_AGENT_PID=$SSH_AGENT_PID"
+          } >> "$GITHUB_ENV"
+
+          SSH_ASKPASS=$HOME/.ssh/_askpass.sh \
           SSH_ASKPASS_REQUIRE=force \
           setsid ssh-add ~/.ssh/deploy_key
 
-          echo "==> Agent loaded, keys:"
+          echo "==> Loaded keys:"
           ssh-add -l
         env:
+          SSH_KEY: ${{ secrets.KEY }}
           SSH_PASSPHRASE: ${{ secrets.PASSWORD_KEY }}
 
-      - name: Stop SSH agent
-        if: always()
+      - name: Reset remote project directory
         run: |
-          if [ -n "${SSH_AGENT_PID:-}" ]; then
-            kill "$SSH_AGENT_PID" 2>/dev/null || true
-          fi
-
-      - name: Sync project to VPS via tar over SSH
-        run: |
-          set -euo pipefail
-          USER="${{ steps.server.outputs.user }}"
-          HOST="${{ steps.server.outputs.host }}"
-          DEST="/docker/TDUGINI/releasegate"
-          echo "==> Syncing to ${USER}@${HOST}:${DEST}"
-
-          # 1. Recreate the destination dir to simulate --delete and
-          #    guarantee a clean state. Safe because DEST is a project
-          #    dir we own entirely.
           ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            "${USER}@${HOST}" "rm -rf '${DEST}' && mkdir -p '${DEST}'"
+            "${{ steps.server.outputs.user }}@${{ steps.server.outputs.host }}" \
+            "rm -rf /docker/TDUGINI/releasegate && mkdir -p /docker/TDUGINI/releasegate"
 
-          # 2. Build a tarball on the runner with the noisy paths
-          #    excluded, then stream it over SSH and extract on the
-          #    host. tar is universally available (incl. alpine), so
-          #    this does not require rsync on the host.
-          tar \
-            --exclude='./.git' \
-            --exclude='./.github' \
-            --exclude='./node_modules' \
-            --exclude='./.vs' \
-            --exclude='./.idea' \
-            --exclude='./bin' \
-            --exclude='./obj' \
-            --exclude='**/bin' \
-            --exclude='**/obj' \
-            -czf - . \
-          | ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            "${USER}@${HOST}" "tar -xzf - -C '${DEST}'"
-
-          echo "==> tar sync finished"
-
-      - name: Verify remote directory contents
-        if: always()
+      - name: SCP project to VPS
         run: |
-          set -euo pipefail
-          USER="${{ steps.server.outputs.user }}"
-          HOST="${{ steps.server.outputs.host }}"
-          DEST="/docker/TDUGINI/releasegate"
-          echo "==> Listing ${DEST} on ${USER}@${HOST}"
-          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            "${USER}@${HOST}" "ls -la '${DEST}' && echo '---' && head -3 '${DEST}/docker-compose.yml' 2>/dev/null || echo 'docker-compose.yml missing'"
+          scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            ./ "${{ steps.server.outputs.user }}@${{ steps.server.outputs.host }}:/docker/TDUGINI/releasegate/"
 
       - name: Start containers on VPS
         run: |
-          set -euo pipefail
-          USER="${{ steps.server.outputs.user }}"
-          HOST="${{ steps.server.outputs.host }}"
-
           ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            "${USER}@${HOST}" <<'REMOTE'
-            set -euo pipefail
-
-            DEPLOY_DIR="/docker/TDUGINI/releasegate"
-            COMPOSE_FILE="docker-compose.yml"
-
-            echo "==> Target directory: ${DEPLOY_DIR}"
-
-            if [ ! -d "${DEPLOY_DIR}" ]; then
-              echo "::error::Deploy directory ${DEPLOY_DIR} does not exist after sync"
-              exit 1
-            fi
-
-            cd "${DEPLOY_DIR}"
-
-            if [ ! -f "${COMPOSE_FILE}" ]; then
-              echo "::error::${COMPOSE_FILE} not found in ${DEPLOY_DIR}"
-              exit 1
-            fi
-
-            # ReleaseGate expects the shared external Traefik network
-            # to already exist on the host.
-            if ! docker network inspect docker_frontend_wp >/dev/null 2>&1; then
-              echo "::error::External network 'docker_frontend_wp' is missing on the host."
-              echo "::error::ReleaseGate requires the shared Traefik network; aborting."
-              exit 1
-            fi
-
-            echo "==> Building and starting containers"
-            docker compose -f "${COMPOSE_FILE}" up -d --build --remove-orphans
-
-            echo "==> Active containers"
-            docker compose -f "${COMPOSE_FILE}" ps
-
-            echo "==> Deploy finished"
-          REMOTE
+            "${{ steps.server.outputs.user }}@${{ steps.server.outputs.host }}" \
+            "cd /docker/TDUGINI/releasegate && docker compose up -d --build --remove-orphans && docker compose ps"
