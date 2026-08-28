@@ -1,69 +1,49 @@
 # ReleaseGate architecture
 
-## Why this project exists
+## Purpose
 
-ReleaseGate is intentionally modeled as an internal developer platform rather than a generic CRUD application. The domain is small enough to understand quickly, while still creating room for real engineering concerns: environment isolation, rollout evaluation, auditability, approvals, runtime delivery, SDK design, authentication, authorization, schema evolution and deployment.
+ReleaseGate is modeled as an internal developer platform rather than a generic CRUD dashboard. The domain is intentionally compact, but it exercises real engineering concerns: environment isolation, deterministic rollout evaluation, auditability, production approvals, runtime delivery, SDK design, authentication, authorization, schema evolution and deployment.
+
+v1.0 is the completed portfolio baseline. Product polish and public-demo packaging sit on top of the same domain and authorization model rather than bypassing it.
 
 ## System boundaries
 
-ReleaseGate contains three main application boundaries:
+ReleaseGate has three primary application boundaries:
 
-- `ReleaseGate.Api` owns the domain model, persistence, authenticated control-plane HTTP API and runtime delivery API;
-- `apps/web` is the authenticated operator control plane used to manage projects, flags, environment configuration and production reviews;
-- `packages/sdk-js` is the application-facing JavaScript/TypeScript SDK used by consumers to read evaluated feature flags.
+- `ReleaseGate.Api` — domain model, persistence, control-plane API, runtime API and production migration startup;
+- `apps/web` — React control plane for projects, feature flags, environment configuration, approvals and audit history;
+- `packages/sdk-js` — JavaScript/TypeScript runtime client that consumes evaluated snapshots.
 
 PostgreSQL is the system of record.
 
-The control plane and runtime API deliberately expose different representations and security concerns. Operators need configuration, rollout, audit and review detail. Applications only need the final evaluated value of each flag for their current subject.
+The control plane and runtime API deliberately expose different representations and use different credentials. Human users need configuration, audit and review context; applications only need evaluated feature-flag decisions.
 
-## Authentication and authorization boundaries
+## Domain model
 
-ReleaseGate treats human control-plane access and application runtime access as separate trust boundaries.
+A feature flag is defined once at project level. Environment-specific runtime state is stored separately.
 
-### Control plane
+```text
+Project
+├── ProjectEnvironment
+│   ├── development
+│   ├── staging
+│   └── production
+└── FeatureFlag
+    └── FeatureFlagEnvironment
+        ├── enabled
+        ├── rollout percentage
+        └── updated timestamp
+```
 
-Control-plane routes require bearer authentication. The current implementation uses server-configured static tokens because the authorization model and control-plane boundary are implemented independently from any external identity provider.
+That distinction keeps `new-checkout` as one stable flag while it progresses from development to staging and production.
 
-An authenticated control-plane identity contains:
-
-- a stable subject used for authorization and audit attribution;
-- a display name used by the React control plane;
-- one or more roles.
-
-The current roles are:
-
-- `operator` — may create projects and flags and mutate environment configuration;
-- `reviewer` — may approve or reject pending production changes created by another identity.
-
-Read-only control-plane access requires authentication, while mutation endpoints enforce the appropriate role. Audit actors are derived from the authenticated subject instead of caller-provided headers.
-
-Production review also enforces separation of duties: the identity that requested a pending production change cannot approve or reject that same change.
-
-The React control plane resolves the current identity through `/api/auth/me`, persists the development access token locally, exposes assigned roles in the shell, and removes or disables actions the current role cannot perform. The API remains the source of truth for authorization; UI gating is only a usability layer.
-
-### Runtime access
-
-Runtime snapshot requests use a dedicated machine-to-machine API key supplied through `X-ReleaseGate-Key`.
-
-Runtime credentials are configured separately from control-plane bearer tokens and contain:
-
-- the secret API key;
-- a client identifier;
-- one or more allowed project keys, with `*` supported for wildcard project access.
-
-The runtime validator compares API keys using a constant-time byte comparison. Missing or unknown credentials produce `401 Unauthorized`; a valid credential that is not allowed to access the requested project produces `403 Forbidden`.
-
-A control-plane token does not grant runtime access, and a runtime key does not grant control-plane access. Hosted deployments inject secret material through environment variables so the runtime contract does not depend on committed production credentials.
-
-## Flag identity vs environment state
-
-A feature flag is defined once at project level. Its environment configuration is stored separately in `FeatureFlagEnvironment`.
-
-That distinction matters because `new-checkout` should remain the same flag while moving from development to staging to production. Duplicating one flag per environment would make lifecycle operations, evaluation and audit history unnecessarily ambiguous.
+Environment changes create `FlagChange` records. Non-production changes are applied immediately. Production changes are persisted as pending requests and affect active configuration only after an authorized reviewer approves them.
 
 ## Control-plane API
 
-Control-plane routes are project-scoped:
+Human-readable project and flag keys are used at the HTTP boundary, while internal relationships use UUIDs.
+
+Representative routes include:
 
 ```text
 /api/auth/me
@@ -72,83 +52,191 @@ Control-plane routes are project-scoped:
 /api/projects/{projectKey}/flags
 /api/projects/{projectKey}/flags/{flagKey}
 /api/projects/{projectKey}/flags/{flagKey}/changes
+/api/projects/{projectKey}/flags/{flagKey}/change-history
 /api/projects/{projectKey}/flags/{flagKey}/environments/{environmentKey}
 ```
 
-Human-readable keys are used at the HTTP boundary. Internal relationships use UUIDs.
+Project and flag metadata support create, update and delete operations. The change-history endpoint is paginated and supports environment filtering so audit history can scale independently from the flag detail payload.
 
-Non-production environment changes are applied immediately and recorded in the audit history. Production changes are persisted as pending requests and only affect active runtime configuration after approval. Rejection leaves the current production state unchanged.
+## Authentication and authorization
 
-## Runtime evaluation
+ReleaseGate treats control-plane access and runtime access as separate trust boundaries.
 
-Percentage rollout evaluation is deterministic for the tuple:
+### Control plane
+
+Control-plane routes require bearer authentication. The current implementation uses server-configured static principals so the authorization model remains independent from a specific external identity provider.
+
+Each authenticated identity has:
+
+- a stable subject used for authorization and audit attribution;
+- a display name shown in the UI;
+- zero or more roles.
+
+The authorization model is:
+
+| Identity | Permissions |
+| --- | --- |
+| authenticated user with no roles | Read control-plane state and audit history. |
+| `operator` | Create/update/delete projects and flags; change environment configuration; submit production changes. |
+| `reviewer` | Approve or reject pending production changes created by another identity. |
+
+The API is the authorization source of truth. The React application hides or disables actions for usability, but server-side policies protect every mutation.
+
+Production review enforces separation of duties: the same subject that requested a production change cannot approve or reject it.
+
+### Portfolio demo principal
+
+The public portfolio deployment configures a dedicated authenticated principal with no `operator` or `reviewer` role.
+
+The browser can therefore receive a known demo bearer token and open the product without manual login, while mutation and approval endpoints still return `403 Forbidden`.
+
+This is intentionally different from exposing a privileged credential in the frontend. The demo credential only grants authenticated read access.
+
+### Runtime access
+
+Runtime snapshots use a separate machine-to-machine credential supplied through:
+
+```http
+X-ReleaseGate-Key: <runtime-api-key>
+```
+
+Runtime credentials contain:
+
+- an API key;
+- a client identifier;
+- allowed project keys, with `*` supported for wildcard access.
+
+The validator uses constant-time comparison for API keys. Missing or unknown keys return `401 Unauthorized`; a valid key outside its project scope returns `403 Forbidden`.
+
+A control-plane bearer token does not grant runtime access, and a runtime key does not grant control-plane access.
+
+## Deterministic rollout evaluation
+
+Percentage rollout evaluation is deterministic for:
 
 ```text
 project + flag + environment + subject
 ```
 
-ReleaseGate hashes that stable identity into a fixed bucket space. The same subject therefore receives the same decision for a given rollout configuration instead of randomly moving in and out of a rollout between requests.
+ReleaseGate hashes that stable identity into a fixed bucket space. A subject therefore remains consistently inside or outside a percentage rollout for a given configuration instead of being randomly re-evaluated on each request.
 
-Application consumers use the runtime snapshot endpoint:
+## Runtime snapshot delivery
+
+Applications consume evaluated snapshots through:
 
 ```text
 GET /api/runtime/projects/{projectKey}/environments/{environmentKey}/snapshot?subjectKey={subjectKey}
 X-ReleaseGate-Key: <runtime-api-key>
 ```
 
-The runtime snapshot contains only evaluated flag keys and boolean values. Rollout percentages, buckets, audit metadata and pending production changes stay behind the control-plane boundary.
+The response contains only evaluated flag keys and boolean values. Rollout percentages, pending changes and audit metadata stay behind the control-plane boundary.
 
-## Runtime configuration delivery
+Snapshots include a weak ETag derived from the evaluated configuration. Consumers can send `If-None-Match`; unchanged snapshots return `304 Not Modified` without another JSON payload.
 
-The runtime snapshot is designed to support many local flag checks from one network request.
-
-Responses include a weak HTTP ETag derived from the evaluated flag set for the project, environment and subject. Consumers can revalidate with `If-None-Match`. When the evaluated configuration is unchanged, the API returns `304 Not Modified` without another JSON payload.
-
-Runtime responses are marked `private, no-cache` so clients may retain the representation but must revalidate it rather than allowing shared caches to serve subject-specific configuration.
+Responses are marked `private, no-cache`, allowing clients to retain a representation while requiring revalidation instead of permitting shared caches to serve subject-specific configuration.
 
 ## JavaScript SDK
 
-`@releasegate/sdk-js` initializes by downloading one runtime snapshot for a subject and stores the evaluated flags in memory.
+`@releasegate/sdk-js` initializes by downloading one runtime snapshot for a subject and stores the evaluated flag map in memory.
 
-The client requires a runtime `apiKey` and sends it as `X-ReleaseGate-Key` on snapshot requests. Human control-plane tokens are not part of the SDK configuration.
+`isEnabled(flagKey)` is a local lookup and does not perform a network request.
 
-`isEnabled(flagKey)` is a local lookup and does not make a network request. Manual `refresh()` and optional automatic polling revalidate the snapshot using its ETag. A `304` keeps the current in-memory snapshot, while a changed response atomically replaces the flag map.
+Manual `refresh()` and optional automatic polling revalidate with the current ETag. A `304` keeps the current in-memory snapshot; a changed response atomically replaces it.
 
-Automatic polling schedules the next refresh only after the previous request finishes, preventing overlapping requests. Failed refreshes preserve the last valid snapshot and can be surfaced through the consumer error callback without stopping the refresh loop.
+Polling schedules the next request only after the previous one completes, preventing overlapping refreshes. Failed refreshes preserve the last valid snapshot.
 
 ### SDK release boundary
 
-The SDK package version is intentionally independent from the ReleaseGate application milestone version.
+The SDK package version is independent from the ReleaseGate application version.
 
-Tags use the form `sdk-js-v<package-version>`. The release workflow rejects a tag that does not exactly match `packages/sdk-js/package.json`, then runs type checking, tests and `npm pack --dry-run` before publishing with npm provenance.
+Tags use:
 
-Registry publication is an explicit release action and requires an `NPM_TOKEN` plus permission for the `@releasegate/sdk-js` package scope. Pull-request CI validates that the package remains packable without publishing anything.
+```text
+sdk-js-v<package-version>
+```
 
-## Persistence
+The release workflow requires the tag version to match `packages/sdk-js/package.json`, then runs type checking, tests and package validation before npm publication. Publishing requires an `NPM_TOKEN` with permission for the package scope.
 
-ReleaseGate uses Entity Framework Core with the Npgsql PostgreSQL provider.
+## Persistence and migrations
 
-Starting with v0.7, schema evolution is managed through explicit EF Core migrations. The repository contains the migration source files and model snapshot and pins `dotnet-ef` through the local tool manifest.
+ReleaseGate uses Entity Framework Core with Npgsql and PostgreSQL.
 
-For relational databases, the API applies committed migrations during startup. Development additionally runs the narrow legacy pre-v0.7 baseline compatibility path before migration and seeds local demo data afterward.
+Schema evolution is managed through committed EF Core migrations. The repository also pins `dotnet-ef` through the local tool manifest.
 
-The legacy bootstrap is intentionally not used in deployed environments. A deployed database is expected to be created and evolved through EF migration history.
+For relational databases the API applies committed migrations during startup.
 
-For the current single-instance self-hosted deployment, startup migration keeps installation simple. If ReleaseGate later runs multiple API replicas, migration execution should move into a dedicated release job so replicas do not compete to change schema.
+Development mode additionally:
 
-CI checks for pending model changes and independently applies committed migrations to an empty PostgreSQL service.
+1. runs the narrow compatibility bootstrap for pre-v0.7 local databases;
+2. applies migrations;
+3. seeds development data.
 
-## Deployment boundary
+Portfolio demo mode applies normal migrations and seeds the same representative dataset only when the database is empty. The legacy compatibility bootstrap remains development-only.
 
-v0.9 packages the API and web control plane as separate production container images.
+For the current single-instance deployment, startup migration keeps installation simple. If multiple API replicas are introduced later, schema migration should move to a dedicated release job.
 
-The production-like Compose topology is:
+## Deployment architecture
+
+ReleaseGate has two deliberate deployment topologies.
+
+### VPS portfolio topology
+
+The root `Dockerfile` produces one application image.
+
+Build stages:
+
+```text
+React source
+   |
+   v
+Vite build
+   |
+   v
+ASP.NET wwwroot
+   |
+   v
+ASP.NET publish
+   |
+   v
+single runtime image :8080
+```
+
+The root `docker-compose.yml` deploys that image with PostgreSQL:
+
+```text
+Internet
+   |
+   v
+Traefik
+   |
+   v
+ReleaseGate app :8080
+React SPA + ASP.NET Core
+   |
+   v
+PostgreSQL :5432
+```
+
+The app joins two networks:
+
+- `releasegate-internal` — private application/database communication;
+- `docker_frontend_wp` — existing external Traefik network.
+
+PostgreSQL joins only `releasegate-internal` and publishes no host port.
+
+Traefik discovers the app through Compose labels, terminates TLS and routes the configured hostname to container port `8080`.
+
+Demo mode enables static SPA serving, SPA fallback routing, seed data and the read-only portfolio principal.
+
+### Production-like integration topology
+
+`docker-compose.prod.yml` intentionally keeps the earlier three-container topology:
 
 ```text
 client
   |
   v
-nginx/web
+nginx / React
   |
   v
 ReleaseGate.Api
@@ -157,29 +245,55 @@ ReleaseGate.Api
 PostgreSQL
 ```
 
-Only nginx is published to the host by default. PostgreSQL and the API remain on the internal Compose network.
+This stack is useful for integration verification and full-auth self-hosted testing. nginx serves the SPA and proxies same-origin `/api/*` and `/health` requests to the API.
 
-The production React build uses same-origin API requests. nginx serves the SPA, routes client-side navigation back to `index.html`, and proxies `/api/*` plus `/health` to the API service. This avoids coupling the browser bundle to a deployment-specific API hostname and removes the need for production browser CORS configuration in the single-host topology.
+Keeping this topology in CI means the original separate API/web production images remain continuously validated even though the portfolio VPS uses the simpler combined image.
 
-Deployment configuration is injected through environment variables. The committed `.env.production.example` documents required values but does not contain usable production secrets.
+## CI/CD boundary
 
-## Deployment verification
+Pull-request CI validates application behavior and deployability before anything reaches the VPS.
 
-CI treats the production-like stack as an integration boundary rather than validating Dockerfiles independently.
+The current pipeline covers:
 
-After API, web and SDK jobs pass, CI builds and starts the Compose stack, waits for `/health` through nginx, creates a project and feature flag through authenticated control-plane requests, changes development configuration, reads the evaluated flag through the runtime API key, and verifies that the runtime endpoint rejects a request without a key.
+- .NET restore, build and integration tests;
+- EF model/migration consistency;
+- applying migrations to an empty PostgreSQL database;
+- React install, typecheck and build;
+- SDK typecheck, tests and package validation;
+- the production-like nginx/API/PostgreSQL Compose stack;
+- the combined portfolio image;
+- the root VPS Compose configuration;
+- seeded portfolio data;
+- read-only demo authorization, including `403` on attempted mutations.
 
-That smoke test exercises container builds, networking, reverse proxying, production migrations, PostgreSQL persistence, control-plane authentication and runtime authentication together.
+`.github/workflows/deploy-vps.yml` is triggered by completion of the `CI` workflow on `main`, not directly by a push.
 
-## Current hardening boundaries
+Deployment proceeds only when:
 
-Authentication, RBAC, runtime credentials, versioned migrations, SDK packaging and a production-like single-host deployment are implemented.
+```text
+CI conclusion == success
+AND
+VPS_DEPLOY_ENABLED == true
+```
 
-The remaining v1.0 work is intentionally product-facing and operational rather than another large architecture expansion. Potential post-v1.0 hardening includes:
+The deployment workflow sends the exact tested `head_sha` to the VPS, checks out that revision and runs:
 
-- integration with a real OIDC/OAuth identity provider while preserving the current subject/role model;
+```bash
+docker compose up -d --build --remove-orphans
+```
+
+This prevents the deployment job from silently building a different revision than the one validated by CI.
+
+## Current hardening boundary
+
+The v1.0 portfolio baseline includes authentication, RBAC, audit history, approval separation of duties, runtime API credentials, schema migrations, SDK packaging, production-like integration testing and automated single-host deployment.
+
+Potential post-v1.0 hardening includes:
+
+- OIDC/OAuth identity-provider integration;
 - external secret-manager integration and credential rotation;
-- migration orchestration for horizontally scaled API deployments;
-- push-based or streaming configuration delivery only if polling becomes an actual constraint.
+- dedicated migration orchestration for multiple replicas;
+- horizontal runtime scaling;
+- push or streaming configuration delivery only if polling becomes a real constraint.
 
-The goal remains the same: visible product behavior should be backed by a coherent end-to-end implementation rather than a broad set of stubs.
+Those are intentional future boundaries, not missing prerequisites for the v1.0 portfolio release.
