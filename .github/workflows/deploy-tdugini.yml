@@ -33,19 +33,66 @@ jobs:
           tr -d '\r' < ~/.ssh/deploy_key > ~/.ssh/.tmp
           mv ~/.ssh/.tmp ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+
+          # Show the local key fingerprint so we can compare with the
+          # authorized key on the host.
+          echo "==> Local private key fingerprint:"
+          ssh-keygen -l -f ~/.ssh/deploy_key
+
+          # askpass script: prints the passphrase to ssh-add
           printf '#!/bin/sh\necho "$SSH_PASSPHRASE"\n' > ~/.ssh/_askpass.sh
           chmod 700 ~/.ssh/_askpass.sh
+
           eval "$(ssh-agent -s)"
           {
             echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK"
             echo "SSH_AGENT_PID=$SSH_AGENT_PID"
           } >> "$GITHUB_ENV"
+
           SSH_ASKPASS=$HOME/.ssh/_askpass.sh SSH_ASKPASS_REQUIRE=force setsid ssh-add ~/.ssh/deploy_key
-          echo "==> Loaded keys:"
+
+          echo "==> Agent loaded keys:"
           ssh-add -l
+
+          # Smoke test the connection. BatchMode=yes makes ssh fail
+          # immediately if the agent does not have a usable key —
+          # exactly the diagnostic we need.
+          echo "==> Test SSH connection to host:"
+          if ssh -o BatchMode=yes \
+                 -o StrictHostKeyChecking=no \
+                 -o UserKnownHostsFile=/dev/null \
+                 -o IdentitiesOnly=yes \
+                 "${USER_HOST:-tdugini@cloud.leonardoforconi.com}" \
+                 "echo 'SSH OK' && hostname && id" 2>&1; then
+            echo "==> SSH connection test passed"
+          else
+            echo "::error::SSH connection test failed. The agent does not have a key that the host accepts."
+            echo "::error::Check that the public key of the private key in the KEY secret is in"
+            echo "::error::~/.ssh/authorized_keys of the SSH user on the host."
+            exit 1
+          fi
         env:
           SSH_KEY: ${{ secrets.KEY }}
           SSH_PASSPHRASE: ${{ secrets.PASSWORD_KEY }}
+          USER_HOST: ${{ steps.server.outputs.user }}@${{ steps.server.outputs.host }}
+
+      - name: Read authorized keys on host for comparison
+        if: always()
+        run: |
+          USER="${{ steps.server.outputs.user }}"
+          HOST="${{ steps.server.outputs.host }}"
+          echo "==> Reading ~/.ssh/authorized_keys on ${USER}@${HOST}"
+          ssh -o BatchMode=yes \
+              -o StrictHostKeyChecking=no \
+              -o UserKnownHostsFile=/dev/null \
+              -o IdentitiesOnly=yes \
+              "${USER}@${HOST}" \
+              "if [ -f ~/.ssh/authorized_keys ]; then \
+                 echo '--- authorized_keys fingerprints ---'; \
+                 ssh-keygen -l -f ~/.ssh/authorized_keys; \
+               else \
+                 echo 'no ~/.ssh/authorized_keys on host'; \
+               fi" 2>&1 || echo "could not read authorized_keys (auth failed)"
 
       - name: SCP project to VPS
         run: |
