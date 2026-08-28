@@ -40,10 +40,37 @@ jobs:
 
       - name: Write SSH key to disk
         run: |
+          set -euo pipefail
           mkdir -p ~/.ssh
-          printf '%s' "$SSH_KEY" > ~/.ssh/deploy_key
+
+          # Write the key. Use 'printf %s\n' to keep the value verbatim
+          # and ensure a trailing newline (ssh requires it).
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+
+          # Normalize line endings: some paste/upload paths introduce
+          # CRLF, which breaks ssh-keygen and ssh. tr -d '\r' is a no-op
+          # for already-LF keys.
+          tr -d '\r' < ~/.ssh/deploy_key > ~/.ssh/deploy_key.tmp
+          mv ~/.ssh/deploy_key.tmp ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null
+
+          bytes=$(wc -c < ~/.ssh/deploy_key | tr -d ' ')
+          lines=$(wc -l < ~/.ssh/deploy_key | tr -d ' ')
+          first_line=$(head -n 1 ~/.ssh/deploy_key)
+          last_line=$(tail -n 1 ~/.ssh/deploy_key)
+          fingerprint=$(sha256sum ~/.ssh/deploy_key | awk '{print $1}')
+
+          echo "==> SSH key on disk: $bytes bytes, $lines lines"
+          echo "==> First line: $first_line"
+          echo "==> Last line:  $last_line"
+          echo "==> SHA256:      $fingerprint"
+
+          # Validate the key. We only warn — the actual ssh/rsync call
+          # will give a clearer, actionable error if the key is wrong.
+          if ! ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null 2>&1; then
+            echo "::warning::ssh-keygen could not parse the deployed key."
+            echo "::warning::Check the KEY secret: it must be a valid OpenSSH or PEM private key, in one piece."
+          fi
         env:
           SSH_KEY: ${{ secrets.KEY }}
 
