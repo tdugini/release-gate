@@ -30,13 +30,26 @@ jobs:
           echo "host=${SERVER#*@}" >> "$GITHUB_OUTPUT"
           echo "Parsed SSH target: ${SERVER%@*}@${SERVER#*@}"
 
-      - name: Install rsync
+      - name: Verify SSH + tar are available on the host
+        id: hostcheck
         run: |
-          if ! command -v rsync >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y rsync
-          fi
-          rsync --version | head -n 1
+          set -euo pipefail
+          USER="${{ steps.server.outputs.user }}"
+          HOST="${{ steps.server.outputs.host }}"
+          echo "==> Probing host: ${USER}@${HOST}"
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "${USER}@${HOST}" 'set -e
+              echo "remote user: $(id -un)"
+              echo "remote umask: $(umask)"
+              echo "tar:     $(command -v tar || echo MISSING)"
+              echo "rsync:   $(command -v rsync || echo MISSING)"
+              echo "docker:  $(command -v docker || echo MISSING)"
+              echo "groups:  $(id -Gn)"
+              echo "PATH:    $PATH"
+              mkdir -p "$1" && echo "mkdir $1: OK" || echo "mkdir $1: FAIL"
+              touch "$1/.testwrite" && echo "touch $1: OK" || echo "touch $1: FAIL"
+              rm -f "$1/.testwrite"
+            ' -- /docker/TDUGINI/releasegate
 
       - name: Write SSH key to disk
         run: |
@@ -105,7 +118,7 @@ OUTER
             kill "$SSH_AGENT_PID" 2>/dev/null || true
           fi
 
-      - name: Sync project to VPS via rsync over SSH
+      - name: Sync project to VPS via tar over SSH
         run: |
           set -euo pipefail
           USER="${{ steps.server.outputs.user }}"
@@ -113,26 +126,31 @@ OUTER
           DEST="/docker/TDUGINI/releasegate"
           echo "==> Syncing to ${USER}@${HOST}:${DEST}"
 
-          # Ensure target dir exists.
+          # 1. Recreate the destination dir to simulate --delete and
+          #    guarantee a clean state. Safe because DEST is a project
+          #    dir we own entirely.
           ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            "${USER}@${HOST}" "mkdir -p '${DEST}'"
+            "${USER}@${HOST}" "rm -rf '${DEST}' && mkdir -p '${DEST}'"
 
-          # rsync. SSH options only — auth comes from the agent
-          # loaded in the previous step.
-          rsync -az --delete \
-            --exclude='.git/' \
-            --exclude='.github/' \
-            --exclude='node_modules/' \
-            --exclude='.vs/' \
-            --exclude='.idea/' \
-            --exclude='**/bin/' \
-            --exclude='**/obj/' \
+          # 2. Build a tarball on the runner with the noisy paths
+          #    excluded, then stream it over SSH and extract on the
+          #    host. tar is universally available (incl. alpine), so
+          #    this does not require rsync on the host.
+          tar \
+            --exclude='./.git' \
+            --exclude='./.github' \
+            --exclude='./node_modules' \
+            --exclude='./.vs' \
+            --exclude='./.idea' \
+            --exclude='./bin' \
+            --exclude='./obj' \
             --exclude='**/bin' \
             --exclude='**/obj' \
-            -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
-            ./ "${USER}@${HOST}:${DEST}/"
+            -czf - . \
+          | ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "${USER}@${HOST}" "tar -xzf - -C '${DEST}'"
 
-          echo "==> rsync finished"
+          echo "==> tar sync finished"
 
       - name: Verify remote directory contents
         if: always()
