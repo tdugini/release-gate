@@ -43,13 +43,10 @@ jobs:
           set -euo pipefail
           mkdir -p ~/.ssh
 
-          # Write the key. Use 'printf %s\n' to keep the value verbatim
-          # and ensure a trailing newline (ssh requires it).
+          # Write the key verbatim and ensure a trailing newline.
           printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
-
-          # Normalize line endings: some paste/upload paths introduce
-          # CRLF, which breaks ssh-keygen and ssh. tr -d '\r' is a no-op
-          # for already-LF keys.
+          # Normalize CRLF -> LF in case the secret was pasted/uploaded
+          # with Windows line endings.
           tr -d '\r' < ~/.ssh/deploy_key > ~/.ssh/deploy_key.tmp
           mv ~/.ssh/deploy_key.tmp ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
@@ -64,28 +61,64 @@ jobs:
           echo "==> First line: $first_line"
           echo "==> Last line:  $last_line"
           echo "==> SHA256:      $fingerprint"
-
-          # Validate the key. We only warn — the actual ssh/rsync call
-          # will give a clearer, actionable error if the key is wrong.
-          if ! ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null 2>&1; then
-            echo "::warning::ssh-keygen could not parse the deployed key."
-            echo "::warning::Check the KEY secret: it must be a valid OpenSSH or PEM private key, in one piece."
-          fi
         env:
           SSH_KEY: ${{ secrets.KEY }}
 
+      - name: Start SSH agent and unlock the key
+        id: agent
+        if: ${{ env.SSH_PASSPHRASE != '' }}
+        run: |
+          set -euo pipefail
+
+          # Start the agent and export its socket + pid for the
+          # remaining steps via $GITHUB_ENV.
+          eval "$(ssh-agent -s)"
+          {
+            echo "SSH_AUTH_SOCK=${SSH_AUTH_SOCK}"
+            echo "SSH_AGENT_PID=${SSH_AGENT_PID}"
+          } >> "$GITHUB_ENV"
+
+          # askpass helper: prints the passphrase when invoked.
+          # Lives in ~/.ssh so the agent step has a stable path.
+          cat > ~/.ssh/_askpass.sh <<'OUTER'
+#!/bin/sh
+echo "$SSH_PASSPHRASE"
+OUTER
+          chmod 700 ~/.ssh/_askpass.sh
+
+          # Add the key. SSH_ASKPASS_REQUIRE=force makes ssh-add use
+          # the askpass program even though there is no controlling
+          # terminal in the runner. setsid detaches it cleanly.
+          SSH_ASKPASS="$HOME/.ssh/_askpass.sh" \
+          SSH_ASKPASS_REQUIRE=force \
+          setsid ssh-add ~/.ssh/deploy_key
+
+          echo "==> Agent loaded, keys:"
+          ssh-add -l
+        env:
+          SSH_PASSPHRASE: ${{ secrets.PASSWORD_KEY }}
+
+      - name: Stop SSH agent
+        if: always()
+        run: |
+          if [ -n "${SSH_AGENT_PID:-}" ]; then
+            kill "$SSH_AGENT_PID" 2>/dev/null || true
+          fi
+
       - name: Sync project to VPS via rsync over SSH
         run: |
+          set -euo pipefail
           USER="${{ steps.server.outputs.user }}"
           HOST="${{ steps.server.outputs.host }}"
           DEST="/docker/TDUGINI/releasegate"
           echo "==> Syncing to ${USER}@${HOST}:${DEST}"
 
-          ssh -i ~/.ssh/deploy_key \
-              -o StrictHostKeyChecking=no \
-              -o UserKnownHostsFile=/dev/null \
-              "${USER}@${HOST}" "mkdir -p '${DEST}'"
+          # Ensure target dir exists.
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "${USER}@${HOST}" "mkdir -p '${DEST}'"
 
+          # rsync. SSH options only — auth comes from the agent
+          # loaded in the previous step.
           rsync -az --delete \
             --exclude='.git/' \
             --exclude='.github/' \
@@ -96,19 +129,19 @@ jobs:
             --exclude='**/obj/' \
             --exclude='**/bin' \
             --exclude='**/obj' \
-            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
+            -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
             ./ "${USER}@${HOST}:${DEST}/"
 
           echo "==> rsync finished"
 
       - name: Start containers on VPS
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ steps.server.outputs.host }}
-          username: ${{ steps.server.outputs.user }}
-          key: ${{ secrets.KEY }}
-          command_timeout: 15m
-          script: |
+        run: |
+          set -euo pipefail
+          USER="${{ steps.server.outputs.user }}"
+          HOST="${{ steps.server.outputs.host }}"
+
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "${USER}@${HOST}" <<'REMOTE'
             set -euo pipefail
 
             DEPLOY_DIR="/docker/TDUGINI/releasegate"
@@ -143,3 +176,4 @@ jobs:
             docker compose -f "${COMPOSE_FILE}" ps
 
             echo "==> Deploy finished"
+          REMOTE
