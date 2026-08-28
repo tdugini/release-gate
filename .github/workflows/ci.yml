@@ -129,15 +129,30 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Validate VPS compose configuration
+        env:
+          POSTGRES_PASSWORD: releasegate_demo_ci
+          RELEASEGATE_HOST: releasegate.test
+        run: docker compose config > /dev/null
+
       - name: Build public demo image
-        run: docker build -f Dockerfile.railway -t releasegate-public-demo .
+        run: >-
+          docker build
+          -f Dockerfile
+          --build-arg VITE_DEMO_ACCESS_TOKEN=releasegate-demo-viewer
+          -t releasegate-public-demo
+          .
 
       - name: Start public demo image
         run: >-
           docker run -d
           --name releasegate-public-demo
           --network host
-          -e PORT=8090
+          -e ASPNETCORE_HTTP_PORTS=8090
+          -e DemoMode__Enabled=true
+          -e ControlPlaneAuth__Tokens__0__Token=releasegate-demo-viewer
+          -e ControlPlaneAuth__Tokens__0__Subject=portfolio-demo
+          -e 'ControlPlaneAuth__Tokens__0__DisplayName=Portfolio Demo'
           -e 'ConnectionStrings__ReleaseGate=Host=127.0.0.1;Port=5432;Database=releasegate_demo_ci;Username=releasegate;Password=releasegate_demo_ci'
           releasegate-public-demo
 
