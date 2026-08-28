@@ -1,0 +1,86 @@
+name: Deploy to TDUGINI VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-tdugini
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Copy project to VPS via SCP
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.SERVER }}
+          key: ${{ secrets.KEY }}
+          source: "."
+          target: "/docker/TDUGINI/releasegate/"
+          rm: true
+          strip_components: 0
+          exclude: |
+            .git
+            .git/**
+            .github
+            .github/**
+            .vs
+            .vs/**
+            .idea
+            .idea/**
+            node_modules
+            node_modules/**
+            **/bin
+            **/bin/**
+            **/obj
+            **/obj/**
+
+      - name: Start containers on VPS
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER }}
+          key: ${{ secrets.KEY }}
+          command_timeout: 15m
+          script: |
+            set -euo pipefail
+
+            DEPLOY_DIR="/docker/TDUGINI/releasegate"
+            COMPOSE_FILE="docker-compose.yml"
+
+            echo "==> Target directory: ${DEPLOY_DIR}"
+
+            if [ ! -d "${DEPLOY_DIR}" ]; then
+              echo "::error::Deploy directory ${DEPLOY_DIR} does not exist after SCP"
+              exit 1
+            fi
+
+            cd "${DEPLOY_DIR}"
+
+            if [ ! -f "${COMPOSE_FILE}" ]; then
+              echo "::error::${COMPOSE_FILE} not found in ${DEPLOY_DIR}"
+              exit 1
+            fi
+
+            # ReleaseGate expects the shared external Traefik network
+            # to already exist on the host.
+            if ! docker network inspect docker_frontend_wp >/dev/null 2>&1; then
+              echo "::error::External network 'docker_frontend_wp' is missing on the host."
+              echo "::error::ReleaseGate requires the shared Traefik network; aborting."
+              exit 1
+            fi
+
+            echo "==> Building and starting containers"
+            docker compose -f "${COMPOSE_FILE}" up -d --build --remove-orphans
+
+            echo "==> Active containers"
+            docker compose -f "${COMPOSE_FILE}" ps
+
+            echo "==> Deploy finished"
