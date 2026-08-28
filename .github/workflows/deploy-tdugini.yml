@@ -18,35 +18,67 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Copy project to VPS via SCP
-        uses: appleboy/scp-action@master
-        with:
-          host: ${{ secrets.SERVER }}
-          key: ${{ secrets.KEY }}
-          source: "."
-          target: "/docker/TDUGINI/releasegate/"
-          rm: true
-          strip_components: 0
-          exclude: |
-            .git
-            .git/**
-            .github
-            .github/**
-            .vs
-            .vs/**
-            .idea
-            .idea/**
-            node_modules
-            node_modules/**
-            **/bin
-            **/bin/**
-            **/obj
-            **/obj/**
+      - name: Parse SERVER secret into user and host
+        id: server
+        run: |
+          SERVER="${{ secrets.SERVER }}"
+          if [[ "$SERVER" != *"@"* ]]; then
+            echo "::error::SERVER secret must be in the form user@host (got: $SERVER)"
+            exit 1
+          fi
+          echo "user=${SERVER%@*}" >> "$GITHUB_OUTPUT"
+          echo "host=${SERVER#*@}" >> "$GITHUB_OUTPUT"
+          echo "Parsed SSH target: ${SERVER%@*}@${SERVER#*@}"
+
+      - name: Install rsync
+        run: |
+          if ! command -v rsync >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y rsync
+          fi
+          rsync --version | head -n 1
+
+      - name: Write SSH key to disk
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null
+        env:
+          SSH_KEY: ${{ secrets.KEY }}
+
+      - name: Sync project to VPS via rsync over SSH
+        run: |
+          USER="${{ steps.server.outputs.user }}"
+          HOST="${{ steps.server.outputs.host }}"
+          DEST="/docker/TDUGINI/releasegate"
+          echo "==> Syncing to ${USER}@${HOST}:${DEST}"
+
+          ssh -i ~/.ssh/deploy_key \
+              -o StrictHostKeyChecking=no \
+              -o UserKnownHostsFile=/dev/null \
+              "${USER}@${HOST}" "mkdir -p '${DEST}'"
+
+          rsync -az --delete \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='node_modules/' \
+            --exclude='.vs/' \
+            --exclude='.idea/' \
+            --exclude='**/bin/' \
+            --exclude='**/obj/' \
+            --exclude='**/bin' \
+            --exclude='**/obj' \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
+            ./ "${USER}@${HOST}:${DEST}/"
+
+          echo "==> rsync finished"
 
       - name: Start containers on VPS
         uses: appleboy/ssh-action@v1
         with:
-          host: ${{ secrets.SERVER }}
+          host: ${{ steps.server.outputs.host }}
+          username: ${{ steps.server.outputs.user }}
           key: ${{ secrets.KEY }}
           command_timeout: 15m
           script: |
@@ -58,7 +90,7 @@ jobs:
             echo "==> Target directory: ${DEPLOY_DIR}"
 
             if [ ! -d "${DEPLOY_DIR}" ]; then
-              echo "::error::Deploy directory ${DEPLOY_DIR} does not exist after SCP"
+              echo "::error::Deploy directory ${DEPLOY_DIR} does not exist after sync"
               exit 1
             fi
 
