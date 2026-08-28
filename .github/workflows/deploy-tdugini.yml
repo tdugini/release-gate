@@ -185,6 +185,17 @@ jobs:
              echo '==> Active containers:'
              docker compose -f '${COMPOSE_FILE}' ps"
 
+      - name: Verify directory contents after deploy
+        if: always()
+        run: |
+          USER="${{ steps.server.outputs.user }}"
+          HOST="${{ steps.server.outputs.host }}"
+          DEST="/docker/TDUGINI/releasegate"
+          echo "==> Listing ${DEST} AFTER deploy"
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "${USER}@${HOST}" \
+            "echo '--- ls -la after deploy ---' && ls -la '${DEST}' && echo '---' && ls '${DEST}' | wc -l"
+
       - name: Stop SSH agent
         if: always()
         run: |
