@@ -10,9 +10,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  copy-only:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
@@ -56,19 +56,39 @@ OUTER
           SSH_KEY: ${{ secrets.KEY }}
           SSH_PASSPHRASE: ${{ secrets.PASSWORD_KEY }}
 
-      - name: Reset remote project directory
-        run: |
-          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            "${{ steps.server.outputs.user }}@${{ steps.server.outputs.host }}" \
-            "rm -rf /docker/TDUGINI/releasegate && mkdir -p /docker/TDUGINI/releasegate"
-
       - name: SCP project to VPS
         run: |
-          scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            ./ "${{ steps.server.outputs.user }}@${{ steps.server.outputs.host }}:/docker/TDUGINI/releasegate/"
+          set -euo pipefail
+          USER="${{ steps.server.outputs.user }}"
+          HOST="${{ steps.server.outputs.host }}"
+          DEST="/docker/TDUGINI/releasegate"
 
-      - name: Start containers on VPS
-        run: |
+          echo "==> Recreating ${DEST} on ${USER}@${HOST}"
           ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            "${{ steps.server.outputs.user }}@${{ steps.server.outputs.host }}" \
-            "cd /docker/TDUGINI/releasegate && docker compose up -d --build --remove-orphans && docker compose ps"
+            "${USER}@${HOST}" "rm -rf '${DEST}' && mkdir -p '${DEST}'"
+
+          echo "==> scp -r ./ ${USER}@${HOST}:${DEST}/"
+          scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            ./ "${USER}@${HOST}:${DEST}/"
+
+          echo "==> scp finished"
+
+      - name: Verify remote directory
+        if: always()
+        run: |
+          USER="${{ steps.server.outputs.user }}"
+          HOST="${{ steps.server.outputs.host }}"
+          DEST="/docker/TDUGINI/releasegate"
+          echo "==> Listing ${DEST} on ${USER}@${HOST}"
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "${USER}@${HOST}" \
+            "echo '--- ls -la ---' && ls -la '${DEST}' && \
+             echo '--- first 3 lines of docker-compose.yml ---' && \
+             head -3 '${DEST}/docker-compose.yml' 2>&1 || echo 'docker-compose.yml missing'"
+
+      - name: Stop SSH agent
+        if: always()
+        run: |
+          if [ -n "${SSH_AGENT_PID:-}" ]; then
+            kill "$SSH_AGENT_PID" 2>/dev/null || true
+          fi
