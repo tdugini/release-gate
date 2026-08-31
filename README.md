@@ -1,6 +1,6 @@
 # ReleaseGate
 
-ReleaseGate is a self-hosted feature flag and progressive-delivery platform built as a production-oriented full-stack portfolio project.
+ReleaseGate is a self-hosted feature flag and progressive-delivery platform built as a production-oriented full-stack application.
 
 It models a real internal-platform problem: teams need a safe way to create feature flags, isolate configuration by environment, roll changes out gradually, evaluate flags for individual subjects, review production changes, inspect audit history and deliver runtime decisions efficiently to applications.
 
@@ -8,7 +8,7 @@ It models a real internal-platform problem: teams need a safe way to create feat
 
 ## Status — v1.0
 
-ReleaseGate v1.0 is feature-complete for the portfolio scope.
+ReleaseGate v1.0 is feature-complete.
 
 The project includes:
 
@@ -25,7 +25,7 @@ The project includes:
 - EF Core migrations and PostgreSQL persistence;
 - production-like container smoke tests in CI;
 - a polished responsive React control plane;
-- a recruiter-friendly read-only portfolio demo mode;
+- a read-only demo mode;
 - automated VPS deployment behind Traefik after successful CI.
 
 ### Milestones
@@ -39,21 +39,15 @@ The project includes:
 - **v0.7 — EF Core migrations:** versioned schema evolution and migration verification in CI.
 - **v0.8 — Runtime security:** machine-to-machine API keys and project scopes.
 - **v0.9 — SDK & deployment:** versioned SDK release pipeline and production-like deployment verification.
-- **v1.0 — Product release:** CRUD completion, paginated history, visual polish and public portfolio deployment path. **Current.**
+- **v1.0 — Product release:** CRUD completion, paginated history, visual polish and public deployment path. **Current.**
 
-## Portfolio demo
+## Live demo
 
-The public portfolio topology is designed so a reviewer can open ReleaseGate without installing Docker or running the repository locally.
-
-Deployment target:
-
-```text
 https://releasegate.maytech.it
-```
 
-The hostname is configurable through `RELEASEGATE_HOST`. The URL becomes available once DNS and the VPS deployment workflow are enabled.
+The public demo runs in read-only mode so projects, feature flags, environments and change history can be explored without allowing mutation or approval operations.
 
-The portfolio deployment automatically authenticates a dedicated **Portfolio Demo** principal. It has no `operator` or `reviewer` roles, so the UI can be explored while mutation and approval endpoints remain forbidden by the API.
+The demo environment automatically authenticates a dedicated read-only principal. It has no `operator` or `reviewer` roles, so mutation and approval endpoints remain forbidden by the API.
 
 The browser-visible demo token is intentionally read-only. It is not a runtime SDK credential and does not grant access to privileged control-plane operations.
 
@@ -137,8 +131,8 @@ tests/
 ├── deploy-vps.yml            deploy tested main revision to the VPS
 └── sdk-release.yml           versioned npm SDK release workflow
 
-Dockerfile                    combined React + ASP.NET portfolio image
-docker-compose.yml            VPS portfolio stack + Traefik labels
+Dockerfile                    combined React + ASP.NET application image
+docker-compose.yml            VPS deployment stack + Traefik labels
 docker-compose.prod.yml       production-like nginx/API/PostgreSQL stack
 ARCHITECTURE.md                architecture decisions and boundaries
 DEPLOYMENT.md                  deployment and operations guide
@@ -218,7 +212,7 @@ Persisted model changes should include a committed migration and an updated mode
 
 ReleaseGate intentionally keeps two different Compose topologies.
 
-### VPS portfolio deployment
+### VPS deployment
 
 `docker-compose.yml` is the deployable root stack used by the VPS automation.
 
@@ -364,7 +358,7 @@ After `main` passes CI, `.github/workflows/deploy-vps.yml` may deploy the exact 
 
 ## Engineering boundaries
 
-ReleaseGate v1.0 deliberately stops before adding infrastructure that would not materially improve the portfolio story.
+ReleaseGate v1.0 deliberately stops before adding infrastructure that would not materially improve the current product scope.
 
 Potential future hardening includes:
 
