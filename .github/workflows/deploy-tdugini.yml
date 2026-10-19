@@ -134,6 +134,24 @@ jobs:
             "${USER}@${HOST}" \
             "echo '--- ls -la ---' && ls -la '${DEST}' && echo '--- head -3 docker-compose.yml ---' && head -3 '${DEST}/docker-compose.yml' 2>&1 || echo 'docker-compose.yml missing'"
 
+      - name: Resolve the Postgres password
+        id: dbpw
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.RELEASEGATE_POSTGRES_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # The database password must be stable across deploys. Generating
+          # one here would silently fork the app credentials from the role
+          # password already stored in the Postgres volume.
+          if [ -z "${POSTGRES_PASSWORD:-}" ]; then
+            echo "::error::Secret RELEASEGATE_POSTGRES_PASSWORD is empty. Set it in the repository secrets."
+            exit 1
+          fi
+          echo "POSTGRES_PASSWORD is set (${#POSTGRES_PASSWORD} chars, value not shown)"
+          # Ship it base64-encoded so no quoting or shell-expansion surprise
+          # happens when it crosses the ssh boundary.
+          echo "b64=$(printf '%s' "$POSTGRES_PASSWORD" | base64 -w0)" >> "$GITHUB_OUTPUT"
+
       - name: Start containers on VPS
         run: |
           set -euo pipefail
@@ -141,38 +159,22 @@ jobs:
           HOST="${{ steps.server.outputs.host }}"
           DEST="/docker/TDUGINI/releasegate"
           COMPOSE_FILE="docker-compose.yml"
+          PG_PW_B64="${{ steps.dbpw.outputs.b64 }}"
 
-          # Ensure a .env file exists on the VPS so docker compose
-          # can expand POSTGRES_PASSWORD and friends. Only generated
-          # the first time; on later deploys the existing file is
-          # kept so the Postgres volume remains accessible.
-          PG_PW="$${POSTGRES_PASSWORD:-}"
-          if [ -z "$PG_PW" ]; then
-            PG_PW=$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)
-            echo "==> POSTGRES_PASSWORD not provided, generated a random one"
-          else
-            echo "==> POSTGRES_PASSWORD provided via env"
-          fi
-
-          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            "${USER}@${HOST}" \
-            "set -e
-             cd '${DEST}'
-             if [ ! -f .env ]; then
-               printf 'POSTGRES_PASSWORD=%s\nDEMO_ACCESS_TOKEN=releasegate-demo-viewer\n' '${PG_PW}' > .env
-               chmod 600 .env
-               echo '==> .env created'
-             else
-               echo '==> .env already present, keeping existing POSTGRES_PASSWORD'
-             fi
-             echo '--- .env keys ---'
-             sed -E 's/=.*/=<redacted>/' .env"
-
-          echo "==> cd ${DEST} && docker compose up -d --build --remove-orphans"
           ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             "${USER}@${HOST}" \
             "set -euo pipefail
              cd '${DEST}'
+             PG_PW=\$(printf '%s' '${PG_PW_B64}' | base64 -d)
+
+             # .env is rewritten on every deploy from the secret above, so it
+             # no longer depends on surviving the 'rm -rf' in the copy step.
+             umask 077
+             printf 'POSTGRES_DB=releasegate\nPOSTGRES_USER=releasegate\nPOSTGRES_PASSWORD=%s\nDEMO_ACCESS_TOKEN=releasegate-demo-viewer\n' \"\$PG_PW\" > .env
+             chmod 600 .env
+             echo '--- .env keys ---'
+             sed -E 's/=.*/=<redacted>/' .env
+
              if [ ! -f '${COMPOSE_FILE}' ]; then
                echo '::error::${COMPOSE_FILE} not found in ${DEST}'
                exit 1
@@ -181,9 +183,54 @@ jobs:
                echo '::error::External network docker_frontend_wp is missing on the host'
                exit 1
              fi
+
              docker compose -f '${COMPOSE_FILE}' up -d --build --remove-orphans
              echo '==> Active containers:'
-             docker compose -f '${COMPOSE_FILE}' ps"
+             docker compose -f '${COMPOSE_FILE}' ps
+
+             # Postgres only applies POSTGRES_PASSWORD while it initialises an
+             # empty PGDATA. Against a pre-existing volume the role keeps its
+             # original password, so the api would get 28P01 on every start.
+             # Align the role with .env explicitly: idempotent, data preserved.
+             echo '==> Aligning the releasegate role password with .env'
+             PW_SQL=\$(printf \"%s\" \"\$PG_PW\" | sed \"s/'/''/g\")
+             docker compose -f '${COMPOSE_FILE}' exec -T postgres \
+               psql -v ON_ERROR_STOP=1 -U releasegate -d releasegate \
+               -c \"ALTER ROLE releasegate WITH PASSWORD '\$PW_SQL';\""
+
+          echo "==> Verifying the api is actually serving (not crash-looping)"
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "${USER}@${HOST}" \
+            "set -euo pipefail
+             cd '${DEST}'
+             API=\$(docker compose -f '${COMPOSE_FILE}' ps -q app)
+             if [ -z \"\$API\" ]; then
+               echo '::error::No app container was created'
+               exit 1
+             fi
+             for i in \$(seq 1 30); do
+               STATUS=\$(docker inspect -f '{{.State.Status}}' \"\$API\")
+               if [ \"\$STATUS\" = 'running' ]; then break; fi
+               sleep 4
+             done
+             STATUS=\$(docker inspect -f '{{.State.Status}}' \"\$API\")
+             echo \"==> app status: \$STATUS (restarts: \$(docker inspect -f '{{.RestartCount}}' \"\$API\"))\"
+             if [ \"\$STATUS\" != 'running' ]; then
+               echo \"::error::The api container is '\$STATUS' instead of running. Last 40 log lines:\"
+               docker logs --tail 40 \"\$API\" || true
+               exit 1
+             fi"
+
+      - name: Deployment summary
+        if: success()
+        run: |
+          {
+            echo "### ReleaseGate deployed to TDUGINI VPS"
+            echo ""
+            echo "- Commit: \`${{ github.sha }}\`"
+            echo "- Compose project: \`releasegate\` (\`docker-compose.yml\`)"
+            echo "- Database role password re-aligned with the \`RELEASEGATE_POSTGRES_PASSWORD\` secret"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Verify directory contents after deploy
         if: always()
