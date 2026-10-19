@@ -147,7 +147,17 @@ jobs:
             echo "::error::Secret RELEASEGATE_POSTGRES_PASSWORD is empty. Set it in the repository secrets."
             exit 1
           fi
-          echo "POSTGRES_PASSWORD is set (${#POSTGRES_PASSWORD} chars, value not shown)"
+          # The value is interpolated into two parsers that have no escaping:
+          # docker compose's .env reader, and the Npgsql connection string,
+          # which is ';'-delimited. A password containing ';', whitespace or a
+          # quote would be split or truncated and silently produce the exact
+          # 28P01 this change removes. Reject it instead of deploying it.
+          UNSUPPORTED=$(printf '%s' "$POSTGRES_PASSWORD" | tr -d 'A-Za-z0-9._-')
+          if [ -n "$UNSUPPORTED" ]; then
+            echo "::error::RELEASEGATE_POSTGRES_PASSWORD contains characters outside [A-Za-z0-9._-]. They break .env parsing or the ';'-delimited connection string. The offending characters are not printed."
+            exit 1
+          fi
+          echo "POSTGRES_PASSWORD accepted (${#POSTGRES_PASSWORD} chars, charset ok, value not shown)"
           # Ship it base64-encoded so no quoting or shell-expansion surprise
           # happens when it crosses the ssh boundary.
           echo "b64=$(printf '%s' "$POSTGRES_PASSWORD" | base64 -w0)" >> "$GITHUB_OUTPUT"
@@ -192,11 +202,27 @@ jobs:
              # empty PGDATA. Against a pre-existing volume the role keeps its
              # original password, so the api would get 28P01 on every start.
              # Align the role with .env explicitly: idempotent, data preserved.
+             echo '==> Waiting for postgres to accept connections'
+             for i in \$(seq 1 30); do
+               if docker compose -f '${COMPOSE_FILE}' exec -T postgres \
+                    pg_isready -U releasegate -d releasegate >/dev/null 2>&1; then
+                 echo '    postgres is ready'
+                 break
+               fi
+               sleep 2
+             done
+
              echo '==> Aligning the releasegate role password with .env'
              PW_SQL=\$(printf \"%s\" \"\$PG_PW\" | sed \"s/'/''/g\")
              docker compose -f '${COMPOSE_FILE}' exec -T postgres \
                psql -v ON_ERROR_STOP=1 -U releasegate -d releasegate \
-               -c \"ALTER ROLE releasegate WITH PASSWORD '\$PW_SQL';\""
+               -c \"ALTER ROLE releasegate WITH PASSWORD '\$PW_SQL';\"
+
+             # The api has been crash-looping, so docker's restart backoff sits
+             # at its 1 minute ceiling and the next attempt could be a minute
+             # away. Restart it explicitly instead of waiting on it.
+             echo '==> Restarting the api so it reconnects immediately'
+             docker compose -f '${COMPOSE_FILE}' restart app"
 
           echo "==> Verifying the api is actually serving (not crash-looping)"
           ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
